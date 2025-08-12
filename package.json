@@ -1,0 +1,24 @@
+{
+  "name": "garage-sale-organizer",
+  "version": "1.0.0",
+  "description": "A comprehensive garage sale organizer with AI-powered listing creation",
+  "main": "backend/server.js",
+  "scripts": {
+    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\" \"npm run public:dev\"",
+    "backend:dev": "cd backend && npm run dev",
+    "frontend:dev": "cd frontend && npm run dev",
+    "public:dev": "cd public-site && npm run dev",
+    "build": "npm run backend:build && npm run frontend:build && npm run public:build",
+    "backend:build": "cd backend && npm run build",
+    "frontend:build": "cd frontend && npm run build",
+    "public:build": "cd public-site && npm run build",
+    "start": "cd backend && npm start",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install && cd ../public-site && npm install"
+  },
+  "keywords": ["garage-sale", "ai", "image-recognition", "marketplace"],
+  "author": "Wes",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
