@@ -109,19 +109,24 @@ const upload = multer({
 });
 
 // Serve static files
-app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Initialize AI service with stored API key
 async function initializeAI() {
     try {
-        const apiKey = await db.getSetting('openai_api_key');
-        const model = await db.getSetting('openai_model') || 'gpt-4o';
+        const openAIKey = await db.getSetting('openai_api_key');
+        const geminiKey = await db.getSetting('gemini_api_key');
+        const provider = await db.getSetting('ai_provider') || 'openai';
+        const model = await db.getSetting('openai_model'); // This will need to be provider-specific
+
+        const config = { provider, openAIKey, geminiKey, model };
         
-        if (apiKey) {
-            aiService.initialize(apiKey, model);
-            console.log('AI service initialized successfully');
+        aiService.initialize(config);
+
+        if (aiService.isInitialized()) {
+            console.log(`AI service initialized successfully for provider: ${aiService.provider}`);
         } else {
-            console.log('No OpenAI API key found. AI features will be disabled until configured.');
+            console.log('No API key found for the current provider. AI features may be disabled.');
         }
     } catch (error) {
         console.error('Error initializing AI service:', error);
@@ -162,7 +167,10 @@ app.get('/api/settings', async (req, res) => {
         const settings = await db.getAllSettings();
         // Don't send the API key in the response for security
         if (settings.openai_api_key) {
-            settings.openai_api_key = settings.openai_api_key ? '***CONFIGURED***' : '';
+            settings.openai_api_key = '***CONFIGURED***';
+        }
+        if (settings.gemini_api_key) {
+            settings.gemini_api_key = '***CONFIGURED***';
         }
         res.json(settings);
     } catch (error) {
@@ -179,12 +187,8 @@ app.put('/api/settings', async (req, res) => {
         }
 
         // Reinitialize AI service if API key changed
-        if (settings.openai_api_key || settings.openai_model) {
-            const apiKey = settings.openai_api_key || await db.getSetting('openai_api_key');
-            const model = settings.openai_model || await db.getSetting('openai_model');
-            if (apiKey) {
-                aiService.initialize(apiKey, model);
-            }
+        if (settings.openai_api_key || settings.gemini_api_key || settings.ai_provider || settings.openai_model) {
+            await initializeAI();
         }
 
         res.json({ message: 'Settings updated successfully' });
@@ -516,65 +520,25 @@ app.get('/api/categories', async (req, res) => {
 app.get('/api/ai/models', async (req, res) => {
     try {
         // Available models with their details
-        const availableModels = [
-            {
-                id: 'gpt-4o',
-                name: 'GPT-4o',
-                description: 'Most capable multimodal model, best for complex analysis',
-                pricing: {
-                    input: 0.005,
-                    output: 0.015,
-                    currency: 'USD',
-                    per: 1000
-                },
-                capabilities: ['text', 'image', 'analysis'],
-                recommended: true
-            },
-            {
-                id: 'gpt-4o-mini',
-                name: 'GPT-4o Mini',
-                description: 'Faster and more affordable, good for simple tasks',
-                pricing: {
-                    input: 0.00015,
-                    output: 0.0006,
-                    currency: 'USD',
-                    per: 1000
-                },
-                capabilities: ['text', 'image', 'analysis'],
-                recommended: false
-            },
-            {
-                id: 'gpt-4',
-                name: 'GPT-4',
-                description: 'Previous generation, high quality but slower',
-                pricing: {
-                    input: 0.03,
-                    output: 0.06,
-                    currency: 'USD',
-                    per: 1000
-                },
-                capabilities: ['text', 'image', 'analysis'],
-                recommended: false
-            },
-            {
-                id: 'gpt-3.5-turbo',
-                name: 'GPT-3.5 Turbo',
-                description: 'Fast and economical, text only',
-                pricing: {
-                    input: 0.0005,
-                    output: 0.0015,
-                    currency: 'USD',
-                    per: 1000
-                },
-                capabilities: ['text'],
-                recommended: false
-            }
-        ];
+        const availableModels = {
+            openai: [
+                { id: 'gpt-4o', name: 'GPT-4o', capabilities: ['text', 'image'], recommended: true },
+                { id: 'gpt-4o-mini', name: 'GPT-4o Mini', capabilities: ['text', 'image'] },
+                { id: 'gpt-4', name: 'GPT-4', capabilities: ['text', 'image'] },
+                { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', capabilities: ['text'] },
+            ],
+            gemini: [
+                { id: 'gemini-1.5-pro-latest', name: 'Gemini 1.5 Pro', capabilities: ['text', 'image'], recommended: true },
+                { id: 'gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash', capabilities: ['text', 'image'] },
+            ]
+        };
 
-        const currentModel = await db.getSetting('openai_model') || 'gpt-4o';
+        const currentProvider = aiService.provider;
+        const currentModel = aiService.model;
         
         res.json({
             available_models: availableModels,
+            current_provider: currentProvider,
             current_model: currentModel,
             ai_initialized: aiService.isInitialized()
         });
@@ -586,9 +550,6 @@ app.get('/api/ai/models', async (req, res) => {
 // Get AI usage statistics for current session
 app.get('/api/ai/usage', async (req, res) => {
     try {
-        const fs = require('fs');
-        const path = require('path');
-        
         // Read AI log files for today and yesterday (to handle timezone issues)
         const today = new Date().toISOString().split('T')[0];
         const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -622,30 +583,32 @@ app.get('/api/ai/usage', async (req, res) => {
                     try {
                         const logEntry = JSON.parse(line);
                         
-                        // Track session start time (first entry)
-                        if (!sessionStartTime) {
+                        // Track session start time (first valid entry)
+                        if (!sessionStartTime && logEntry.timestamp) {
                             sessionStartTime = logEntry.timestamp;
                         }
                         
-                        // Count costs
-                        if (logEntry.message?.startsWith('AI_COST:')) {
+                        // Count costs from valid log entries
+                        if (logEntry.message?.startsWith('AI_COST:') && logEntry.estimated_cost_usd && logEntry.tokens) {
                             const operation = logEntry.operation;
-                            const cost = logEntry.estimated_cost_usd?.total_cost || 0;
-                            const tokens = logEntry.tokens?.total_tokens || 0;
+                            const cost = Number(logEntry.estimated_cost_usd.total_cost) || 0;
+                            const tokens = Number(logEntry.tokens.total_tokens) || 0;
                             
-                            console.log(`Found cost entry: ${cost}, tokens: ${tokens}, operation: ${operation}`);
-                            
-                            sessionStats.total_cost += cost;
-                            sessionStats.total_tokens += tokens;
-                            sessionStats.total_requests += 1;
-                            
-                            if (sessionStats.operations[operation]) {
+                            if (operation) {
+                                console.log(`Found cost entry: ${cost}, tokens: ${tokens}, operation: ${operation}`);
+                                
+                                sessionStats.total_cost += cost;
+                                sessionStats.total_tokens += tokens;
+                                sessionStats.total_requests += 1;
+                                
+                                if (!sessionStats.operations[operation]) {
+                                    // Initialize stats for a new operation type
+                                    sessionStats.operations[operation] = { count: 0, cost: 0, tokens: 0 };
+                                }
+                                
                                 sessionStats.operations[operation].count += 1;
                                 sessionStats.operations[operation].cost += cost;
                                 sessionStats.operations[operation].tokens += tokens;
-                            } else {
-                                // Handle cases where the operation is not pre-defined
-                                sessionStats.operations[operation] = { count: 1, cost: cost, tokens: tokens };
                             }
                         }
                     } catch (parseError) {
@@ -663,40 +626,44 @@ app.get('/api/ai/usage', async (req, res) => {
 
         res.json(sessionStats);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Error in /api/ai/usage:', error);
+        res.status(500).json({ error: error.message, stack: error.stack });
     }
 });
 
-// Update AI model
-app.put('/api/ai/model', async (req, res) => {
+// Get current AI provider
+app.get('/api/ai/provider', (req, res) => {
+    res.json({
+        provider: aiService.provider,
+        model: aiService.model,
+        initialized: aiService.isInitialized()
+    });
+});
+
+// Update AI provider and model
+app.put('/api/ai/provider', async (req, res) => {
     try {
-        const { model } = req.body;
-        
-        if (!model) {
-            return res.status(400).json({ error: 'Model is required' });
+        const { provider, model } = req.body;
+
+        if (!provider) {
+            return res.status(400).json({ error: 'Provider is required' });
         }
-        
-        // Validate model
-        const validModels = ['gpt-4o', 'gpt-4o-mini', 'gpt-4', 'gpt-3.5-turbo'];
-        if (!validModels.includes(model)) {
-            return res.status(400).json({ error: 'Invalid model specified' });
+
+        await db.setSetting('ai_provider', provider);
+        if (model) {
+            // Store model preference for the specific provider
+            await db.setSetting(`${provider}_model`, model);
         }
-        
-        await db.setSetting('openai_model', model);
-        
-        // Reinitialize AI service with new model
-        const apiKey = await db.getSetting('openai_api_key');
-        if (apiKey) {
-            aiService.initialize(apiKey, model);
-        }
-        
-        logger.info('AI model updated', {
-            old_model: aiService.model,
+
+        await initializeAI();
+
+        logger.info('AI provider updated', {
+            new_provider: provider,
             new_model: model,
             timestamp: new Date().toISOString()
         });
-        
-        res.json({ message: 'Model updated successfully', model });
+
+        res.json({ message: 'AI provider updated successfully', provider, model });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -770,7 +737,7 @@ if (process.env.NODE_ENV === 'production') {
                             
                             <div>
                                 <a href="http://localhost:3000" class="btn">Admin Interface</a>
-                                <a href="http://localhost:3001" class="btn">Public Site</a>
+                                <a href="http://localhost:3002" class="btn">Public Site</a>
                             </div>
                             
                             <p style="margin-top: 30px; color: #666; font-size: 14px;">
@@ -791,5 +758,5 @@ app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`API available at http://localhost:${PORT}/api`);
     console.log(`Admin interface: http://localhost:3000 (development)`);
-    console.log(`Public site: http://localhost:3001 (development)`);
+    console.log(`Public site: http://localhost:3002 (development)`);
 });

@@ -30,7 +30,10 @@ export interface AIAnalysis {
 
 export interface Settings {
   openai_api_key?: string;
+  gemini_api_key?: string;
+  ai_provider?: 'openai' | 'gemini';
   openai_model?: string;
+  gemini_model?: string;
   garage_sale_title?: string;
   garage_sale_date?: string;
   garage_sale_address?: string;
@@ -204,26 +207,21 @@ export const aiApi = {
     api.get('/ai/usage').then(res => res.data),
     
   getModels: (): Promise<{
-    available_models: Array<{
-      id: string;
-      name: string;
-      description: string;
-      pricing: {
-        input: number;
-        output: number;
-        currency: string;
-        per: number;
-      };
-      capabilities: string[];
-      recommended: boolean;
-    }>;
+    available_models: {
+      openai: Array<{ id: string; name: string; capabilities: string[]; recommended?: boolean }>;
+      gemini: Array<{ id: string; name: string; capabilities: string[]; recommended?: boolean }>;
+    };
+    current_provider: 'openai' | 'gemini';
     current_model: string;
     ai_initialized: boolean;
   }> =>
     api.get('/ai/models').then(res => res.data),
-    
-  updateModel: (model: string): Promise<{ message: string; model: string }> =>
-    api.put('/ai/model', { model }).then(res => res.data),
+
+  getProvider: (): Promise<{ provider: string; model: string; initialized: boolean }> =>
+    api.get('/ai/provider').then(res => res.data),
+
+  updateProvider: (data: { provider: string; model?: string }): Promise<{ message: string }> =>
+    api.put('/ai/provider', data).then(res => res.data),
 };
 
 // Health check

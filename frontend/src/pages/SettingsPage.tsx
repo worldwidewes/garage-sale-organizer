@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Save, Eye, EyeOff, Sparkles, ExternalLink } from 'lucide-react';
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
+import ProviderSwitcher from '../components/ProviderSwitcher';
 
 export default function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
@@ -8,7 +9,7 @@ export default function SettingsPage() {
   
   const [formData, setFormData] = useState({
     openai_api_key: '',
-    openai_model: 'gpt-4-vision-preview',
+    gemini_api_key: '',
     garage_sale_title: '',
     garage_sale_date: '',
     garage_sale_address: '',
@@ -20,7 +21,7 @@ export default function SettingsPage() {
     if (settings) {
       setFormData({
         openai_api_key: settings.openai_api_key === '***CONFIGURED***' ? '' : settings.openai_api_key || '',
-        openai_model: settings.openai_model || 'gpt-4-vision-preview',
+        gemini_api_key: settings.gemini_api_key === '***CONFIGURED***' ? '' : settings.gemini_api_key || '',
         garage_sale_title: settings.garage_sale_title || '',
         garage_sale_date: settings.garage_sale_date || '',
         garage_sale_address: settings.garage_sale_address || '',
@@ -37,10 +38,13 @@ export default function SettingsPage() {
     e.preventDefault();
     
     try {
-      const dataToSubmit = { ...formData };
+      const dataToSubmit: Partial<typeof formData> = { ...formData };
       // Only send API key if it was changed
       if (settings?.openai_api_key === '***CONFIGURED***' && !formData.openai_api_key) {
         delete dataToSubmit.openai_api_key;
+      }
+      if (settings?.gemini_api_key === '***CONFIGURED***' && !formData.gemini_api_key) {
+        delete dataToSubmit.gemini_api_key;
       }
       
       await updateSettings.mutateAsync(dataToSubmit);
@@ -83,58 +87,78 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-6">
-            <div>
-              <label htmlFor="openai_api_key" className="block text-sm font-medium text-gray-700 mb-2">
-                OpenAI API Key
-              </label>
-              <div className="relative">
-                <input
-                  type={showApiKey ? "text" : "password"}
-                  id="openai_api_key"
-                  value={formData.openai_api_key}
-                  onChange={(e) => handleInputChange('openai_api_key', e.target.value)}
-                  className="form-input pr-12"
-                  placeholder={settings?.openai_api_key === '***CONFIGURED***' ? 'API key is configured' : 'sk-...'}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Get your API key from{' '}
-                <a
-                  href="https://platform.openai.com/api-keys"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-500 inline-flex items-center"
-                >
-                  OpenAI Platform
-                  <ExternalLink className="w-3 h-3 ml-1" />
-                </a>
-              </p>
-            </div>
+            <ProviderSwitcher />
 
-            <div>
-              <label htmlFor="openai_model" className="block text-sm font-medium text-gray-700 mb-2">
-                AI Model
-              </label>
-              <select
-                id="openai_model"
-                value={formData.openai_model}
-                onChange={(e) => handleInputChange('openai_model', e.target.value)}
-                className="form-select"
-              >
-                <option value="gpt-4-vision-preview">GPT-4 Vision (Recommended)</option>
-                <option value="gpt-4o">GPT-4o</option>
-                <option value="gpt-4o-mini">GPT-4o Mini (Faster, cheaper)</option>
-              </select>
-              <p className="text-xs text-gray-500 mt-2">
-                GPT-4 Vision provides the best image analysis capabilities for garage sale items.
-              </p>
+            <div className="pt-4 space-y-6">
+              <div>
+                <label htmlFor="openai_api_key" className="block text-sm font-medium text-gray-700 mb-2">
+                  OpenAI API Key
+                </label>
+                <div className="relative">
+                  <input
+                    type={showApiKey ? "text" : "password"}
+                    id="openai_api_key"
+                    value={formData.openai_api_key}
+                    onChange={(e) => handleInputChange('openai_api_key', e.target.value)}
+                    className="form-input pr-12"
+                    placeholder={settings?.openai_api_key === '***CONFIGURED***' ? 'API key is configured' : 'sk-...'}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Get your API key from{' '}
+                  <a
+                    href="https://platform.openai.com/api-keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-500 inline-flex items-center"
+                  >
+                    OpenAI Platform
+                    <ExternalLink className="w-3 h-3 ml-1" />
+                  </a>
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="gemini_api_key" className="block text-sm font-medium text-gray-700 mb-2">
+                  Google Gemini API Key
+                </label>
+                <div className="relative">
+                  <input
+                    type={showApiKey ? "text" : "password"}
+                    id="gemini_api_key"
+                    value={formData.gemini_api_key}
+                    onChange={(e) => handleInputChange('gemini_api_key', e.target.value)}
+                    className="form-input pr-12"
+                    placeholder={settings?.gemini_api_key === '***CONFIGURED***' ? 'API key is configured' : 'Enter your Gemini API key'}
+                  />
+                   <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Get your API key from{' '}
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-500 inline-flex items-center"
+                  >
+                    Google AI Studio
+                    <ExternalLink className="w-3 h-3 ml-1" />
+                  </a>
+                </p>
+              </div>
             </div>
 
             {isConfigured && (
