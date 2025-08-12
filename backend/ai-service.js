@@ -9,9 +9,12 @@ class AIService {
 
     initialize(apiKey, model = 'gpt-4o') {
         this.openai = new OpenAI({
-            apiKey: apiKey
+            apiKey: apiKey,
+            timeout: 120000, // 2 minute timeout
+            maxRetries: 2,   // Retry failed requests up to 2 times
         });
         this.model = model;
+        console.log(`[AI] Service initialized with model: ${model}, timeout: 120s, retries: 2`);
     }
 
     isInitialized() {
@@ -23,13 +26,21 @@ class AIService {
             throw new Error('AI service not initialized. Please configure your OpenAI API key.');
         }
 
+        const startTime = Date.now();
+        let requestTokens = 0;
+        let responseTokens = 0;
+        
         try {
+            console.log(`[AI] Starting image analysis for: ${path.basename(imagePath)}`);
+            
             // Read the image file and convert to base64
+            const imageLoadStart = Date.now();
             const imageBuffer = fs.readFileSync(imagePath);
             const base64Image = imageBuffer.toString('base64');
             const mimeType = this.getMimeType(imagePath);
+            console.log(`[AI] Image loaded and encoded in ${Date.now() - imageLoadStart}ms, size: ${(imageBuffer.length / 1024 / 1024).toFixed(2)}MB`);
 
-            const response = await this.openai.chat.completions.create({
+            const requestPayload = {
                 model: this.model,
                 messages: [
                     {
@@ -66,36 +77,96 @@ class AIService {
                     }
                 ],
                 max_tokens: 500
-            });
+            };
+
+            console.log(`[AI] Making OpenAI API request - Model: ${this.model}, Max tokens: 500`);
+            const apiCallStart = Date.now();
+            
+            const response = await this.openai.chat.completions.create(requestPayload);
+            
+            const apiCallTime = Date.now() - apiCallStart;
+            
+            // Extract usage information
+            if (response.usage) {
+                requestTokens = response.usage.prompt_tokens || 0;
+                responseTokens = response.usage.completion_tokens || 0;
+                console.log(`[AI] API call completed in ${apiCallTime}ms`);
+                console.log(`[AI] Token usage - Prompt: ${requestTokens}, Completion: ${responseTokens}, Total: ${response.usage.total_tokens}`);
+                console.log(`[AI] Model: ${response.model || this.model}`);
+            } else {
+                console.log(`[AI] API call completed in ${apiCallTime}ms (no usage data available)`);
+            }
 
             const content = response.choices[0].message.content;
+            console.log(`[AI] Response length: ${content.length} characters`);
+            console.log(`[AI] Raw response: ${content.substring(0, 200)}...`);
             
             // Try to parse JSON from the response
             try {
                 const jsonMatch = content.match(/\{[\s\S]*\}/);
                 if (jsonMatch) {
                     const analysis = JSON.parse(jsonMatch[0]);
+                    const totalTime = Date.now() - startTime;
+                    console.log(`[AI] Analysis successful in ${totalTime}ms - Title: "${analysis.title}", Price: $${analysis.estimated_price}`);
+                    
                     return {
                         success: true,
-                        analysis: analysis
+                        analysis: analysis,
+                        timing: {
+                            total_ms: totalTime,
+                            api_call_ms: apiCallTime
+                        },
+                        usage: {
+                            prompt_tokens: requestTokens,
+                            completion_tokens: responseTokens,
+                            total_tokens: requestTokens + responseTokens
+                        }
                     };
                 } else {
                     throw new Error('No JSON found in response');
                 }
             } catch (parseError) {
-                // Fallback: return the raw content if JSON parsing fails
+                const totalTime = Date.now() - startTime;
+                console.error(`[AI] JSON parsing failed after ${totalTime}ms:`, parseError.message);
+                console.error(`[AI] Raw response that failed to parse:`, content);
+                
                 return {
                     success: false,
                     error: 'Could not parse AI response as JSON',
-                    raw_response: content
+                    raw_response: content,
+                    timing: {
+                        total_ms: totalTime,
+                        api_call_ms: apiCallTime
+                    },
+                    usage: {
+                        prompt_tokens: requestTokens,
+                        completion_tokens: responseTokens,
+                        total_tokens: requestTokens + responseTokens
+                    }
                 };
             }
 
         } catch (error) {
-            console.error('AI analysis error:', error);
+            const totalTime = Date.now() - startTime;
+            console.error(`[AI] Analysis failed after ${totalTime}ms:`, error.message);
+            console.error(`[AI] Error type:`, error.constructor.name);
+            console.error(`[AI] Error details:`, error);
+            
+            // Check for specific OpenAI errors
+            if (error.code) {
+                console.error(`[AI] OpenAI error code: ${error.code}`);
+            }
+            if (error.type) {
+                console.error(`[AI] OpenAI error type: ${error.type}`);
+            }
+            
             return {
                 success: false,
-                error: error.message
+                error: error.message,
+                error_type: error.constructor.name,
+                timing: {
+                    total_ms: totalTime
+                }
             };
         }
     }
@@ -105,8 +176,14 @@ class AIService {
             throw new Error('AI service not initialized. Please configure your OpenAI API key.');
         }
 
+        const startTime = Date.now();
+        let requestTokens = 0;
+        let responseTokens = 0;
+
         try {
-            const response = await this.openai.chat.completions.create({
+            console.log(`[AI] Generating description for: "${title}" (${category})`);
+            
+            const requestPayload = {
                 model: 'gpt-3.5-turbo',
                 messages: [
                     {
@@ -120,18 +197,64 @@ class AIService {
                     }
                 ],
                 max_tokens: 200
-            });
+            };
+
+            console.log(`[AI] Making OpenAI API request - Model: gpt-3.5-turbo, Max tokens: 200`);
+            const apiCallStart = Date.now();
+            
+            const response = await this.openai.chat.completions.create(requestPayload);
+            
+            const apiCallTime = Date.now() - apiCallStart;
+            const totalTime = Date.now() - startTime;
+            
+            // Extract usage information
+            if (response.usage) {
+                requestTokens = response.usage.prompt_tokens || 0;
+                responseTokens = response.usage.completion_tokens || 0;
+                console.log(`[AI] Description generated in ${totalTime}ms (API: ${apiCallTime}ms)`);
+                console.log(`[AI] Token usage - Prompt: ${requestTokens}, Completion: ${responseTokens}, Total: ${response.usage.total_tokens}`);
+            } else {
+                console.log(`[AI] Description generated in ${totalTime}ms (API: ${apiCallTime}ms, no usage data)`);
+            }
+
+            const description = response.choices[0].message.content.trim();
+            console.log(`[AI] Generated description (${description.length} chars): "${description.substring(0, 100)}..."`);
 
             return {
                 success: true,
-                description: response.choices[0].message.content.trim()
+                description: description,
+                timing: {
+                    total_ms: totalTime,
+                    api_call_ms: apiCallTime
+                },
+                usage: {
+                    prompt_tokens: requestTokens,
+                    completion_tokens: responseTokens,
+                    total_tokens: requestTokens + responseTokens
+                }
             };
 
         } catch (error) {
-            console.error('Description generation error:', error);
+            const totalTime = Date.now() - startTime;
+            console.error(`[AI] Description generation failed after ${totalTime}ms:`, error.message);
+            console.error(`[AI] Error type:`, error.constructor.name);
+            console.error(`[AI] Error details:`, error);
+            
+            // Check for specific OpenAI errors
+            if (error.code) {
+                console.error(`[AI] OpenAI error code: ${error.code}`);
+            }
+            if (error.type) {
+                console.error(`[AI] OpenAI error type: ${error.type}`);
+            }
+            
             return {
                 success: false,
-                error: error.message
+                error: error.message,
+                error_type: error.constructor.name,
+                timing: {
+                    total_ms: totalTime
+                }
             };
         }
     }

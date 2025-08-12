@@ -309,15 +309,34 @@ app.post('/api/items/:id/images', upload.single('image'), async (req, res) => {
 
         // Analyze image with AI if available
         let aiAnalysis = null;
+        let aiTiming = null;
+        let aiUsage = null;
+        
         if (aiService.isInitialized()) {
             console.log(`[UPLOAD] Starting AI analysis for ${req.file.filename}...`);
             const aiStart = Date.now();
             try {
                 const analysis = await aiService.analyzeImage(req.file.path);
-                console.log(`[UPLOAD] AI analysis completed in ${Date.now() - aiStart}ms`);
+                const aiTotalTime = Date.now() - aiStart;
+                console.log(`[UPLOAD] AI analysis completed in ${aiTotalTime}ms`);
+                
+                // Extract timing and usage info
+                if (analysis.timing) {
+                    aiTiming = analysis.timing;
+                }
+                if (analysis.usage) {
+                    aiUsage = analysis.usage;
+                    console.log(`[UPLOAD] AI token usage: ${analysis.usage.total_tokens} total (${analysis.usage.prompt_tokens} prompt + ${analysis.usage.completion_tokens} completion)`);
+                }
+                
                 if (analysis.success) {
-                    aiAnalysis = JSON.stringify(analysis.analysis);
-                    console.log(`[UPLOAD] AI suggested: ${analysis.analysis.title} - $${analysis.analysis.estimated_price}`);
+                    aiAnalysis = JSON.stringify({
+                        ...analysis.analysis,
+                        timing: aiTiming,
+                        usage: aiUsage
+                    });
+                    console.log(`[UPLOAD] AI suggested: "${analysis.analysis.title}" - $${analysis.analysis.estimated_price} (${analysis.analysis.category})`);
+                    console.log(`[UPLOAD] AI condition: ${analysis.analysis.condition}, Tags: ${analysis.analysis.tags?.join(', ') || 'none'}`);
                     
                     // Update item with AI suggestions if fields are empty
                     const updates = {};
@@ -336,13 +355,40 @@ app.post('/api/items/:id/images', upload.single('image'), async (req, res) => {
                     
                     if (Object.keys(updates).length > 0) {
                         console.log(`[UPLOAD] Updating item with AI suggestions: ${Object.keys(updates).join(', ')}`);
+                        const updateStart = Date.now();
                         await db.updateItem(itemId, updates);
+                        console.log(`[UPLOAD] Item updated in ${Date.now() - updateStart}ms`);
+                    } else {
+                        console.log('[UPLOAD] No item updates needed - all fields already have values');
                     }
                 } else {
-                    console.log(`[UPLOAD] AI analysis failed: ${analysis.error}`);
+                    console.error(`[UPLOAD] AI analysis failed: ${analysis.error}`);
+                    if (analysis.error_type) {
+                        console.error(`[UPLOAD] AI error type: ${analysis.error_type}`);
+                    }
+                    if (analysis.raw_response) {
+                        console.error(`[UPLOAD] AI raw response: ${analysis.raw_response.substring(0, 500)}...`);
+                    }
+                    // Store the error information for debugging
+                    aiAnalysis = JSON.stringify({
+                        error: analysis.error,
+                        error_type: analysis.error_type,
+                        raw_response: analysis.raw_response,
+                        timing: aiTiming,
+                        usage: aiUsage
+                    });
                 }
             } catch (aiError) {
-                console.warn(`[UPLOAD] AI analysis error: ${aiError.message}`);
+                const aiTotalTime = Date.now() - aiStart;
+                console.error(`[UPLOAD] AI analysis exception after ${aiTotalTime}ms:`, aiError.message);
+                console.error(`[UPLOAD] AI exception stack:`, aiError.stack);
+                
+                // Store the exception information
+                aiAnalysis = JSON.stringify({
+                    error: aiError.message,
+                    error_type: aiError.constructor.name,
+                    timing: { total_ms: aiTotalTime }
+                });
             }
         } else {
             console.log('[UPLOAD] AI service not initialized, skipping analysis');
