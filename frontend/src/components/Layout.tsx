@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { Home, Package, Settings, Plus } from 'lucide-react';
 import clsx from 'clsx';
+import APICostMeter from './APICostMeter';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -20,8 +21,8 @@ export default function Layout({ children }: LayoutProps) {
       <nav className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
-            <div className="flex">
-              <div className="flex-shrink-0 flex items-center">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
                 <h1 className="text-xl font-bold text-gray-900">
                   Garage Sale Organizer
                 </h1>
@@ -50,10 +51,11 @@ export default function Layout({ children }: LayoutProps) {
                 })}
               </div>
             </div>
-            <div className="flex items-center">
+            <div className="flex items-center space-x-2 lg:space-x-4">
+              <APICostMeter className="hidden lg:flex" />
               <Link
                 to="/items/new"
-                className="btn btn-primary inline-flex items-center"
+                className="btn btn-primary inline-flex items-center whitespace-nowrap"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Add Item

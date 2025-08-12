@@ -10,6 +10,7 @@ const sharp = require('sharp');
 
 const Database = require('./database');
 const AIService = require('./ai-service');
+const logger = require('./logger');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -23,6 +24,32 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// API Request/Response logging middleware
+app.use((req, res, next) => {
+    const startTime = Date.now();
+    
+    // Log the incoming request
+    logger.api.request(req, {
+        body_size: req.headers['content-length'] || 0,
+        user_agent: req.headers['user-agent']
+    });
+    
+    // Override res.end to capture response
+    const originalEnd = res.end;
+    res.end = function(chunk, encoding) {
+        const responseTime = Date.now() - startTime;
+        
+        // Log the response
+        logger.api.response(req, res, responseTime, {
+            response_size: chunk ? Buffer.byteLength(chunk, encoding) : 0
+        });
+        
+        originalEnd.call(res, chunk, encoding);
+    };
+    
+    next();
+});
 
 // Increase timeout for requests (especially image uploads with AI processing)
 app.use((req, res, next) => {
@@ -280,122 +307,131 @@ app.delete('/api/items/:id', async (req, res) => {
 app.post('/api/items/:id/images', upload.single('image'), async (req, res) => {
     const startTime = Date.now();
     const itemId = req.params.id;
-    console.log(`[UPLOAD] Starting image upload for item ${itemId}, file: ${req.file?.filename}`);
     
     try {
         if (!req.file) {
-            console.log('[UPLOAD] Error: No image file provided');
+            logger.upload.error('no_file', 'No image file provided', Date.now() - startTime, {
+                item_id: itemId
+            });
             return res.status(400).json({ error: 'No image file provided' });
         }
 
-        console.log(`[UPLOAD] File received: ${req.file.filename}, size: ${(req.file.size / 1024 / 1024).toFixed(2)}MB`);
+        // Log upload start
+        logger.upload.start(req.file.filename, req.file.size, itemId, {
+            original_name: req.file.originalname,
+            mime_type: req.file.mimetype
+        });
         
         // Verify item exists
-        console.log(`[UPLOAD] Verifying item ${itemId} exists...`);
+        const itemVerifyStart = Date.now();
         const item = await db.getItem(itemId);
         if (!item) {
-            console.log(`[UPLOAD] Error: Item ${itemId} not found`);
             // Clean up uploaded file
             fs.unlinkSync(req.file.path);
+            logger.upload.error(req.file.filename, new Error('Item not found'), Date.now() - startTime, {
+                item_id: itemId,
+                verification_time_ms: Date.now() - itemVerifyStart
+            });
             return res.status(404).json({ error: 'Item not found' });
         }
-        console.log(`[UPLOAD] Item verified: ${item.title}`);
+        
+        logger.upload.step('item_verification', req.file.filename, Date.now() - itemVerifyStart, {
+            item_id: itemId,
+            item_title: item.title
+        });
 
         // Create thumbnail
-        console.log(`[UPLOAD] Creating thumbnail for ${req.file.filename}...`);
         const thumbnailStart = Date.now();
         await createThumbnail(req.file.path, req.file.filename);
-        console.log(`[UPLOAD] Thumbnail created in ${Date.now() - thumbnailStart}ms`);
+        logger.upload.step('thumbnail_creation', req.file.filename, Date.now() - thumbnailStart);
 
         // Analyze image with AI if available
         let aiAnalysis = null;
-        let aiTiming = null;
-        let aiUsage = null;
+        let aiResult = null;
         
         if (aiService.isInitialized()) {
-            console.log(`[UPLOAD] Starting AI analysis for ${req.file.filename}...`);
             const aiStart = Date.now();
             try {
-                const analysis = await aiService.analyzeImage(req.file.path);
-                const aiTotalTime = Date.now() - aiStart;
-                console.log(`[UPLOAD] AI analysis completed in ${aiTotalTime}ms`);
+                aiResult = await aiService.analyzeImage(req.file.path);
+                const aiTime = Date.now() - aiStart;
                 
-                // Extract timing and usage info
-                if (analysis.timing) {
-                    aiTiming = analysis.timing;
-                }
-                if (analysis.usage) {
-                    aiUsage = analysis.usage;
-                    console.log(`[UPLOAD] AI token usage: ${analysis.usage.total_tokens} total (${analysis.usage.prompt_tokens} prompt + ${analysis.usage.completion_tokens} completion)`);
-                }
+                logger.upload.step('ai_analysis', req.file.filename, aiTime, {
+                    ai_success: aiResult.success,
+                    tokens_used: aiResult.usage?.total_tokens,
+                    estimated_cost: aiResult.usage ? aiService.calculateCost(
+                        aiResult.usage.prompt_tokens, 
+                        aiResult.usage.completion_tokens, 
+                        aiService.model
+                    ).total_cost : null
+                });
                 
-                if (analysis.success) {
+                if (aiResult.success) {
                     aiAnalysis = JSON.stringify({
-                        ...analysis.analysis,
-                        timing: aiTiming,
-                        usage: aiUsage
+                        ...aiResult.analysis,
+                        timing: aiResult.timing,
+                        usage: aiResult.usage
                     });
-                    console.log(`[UPLOAD] AI suggested: "${analysis.analysis.title}" - $${analysis.analysis.estimated_price} (${analysis.analysis.category})`);
-                    console.log(`[UPLOAD] AI condition: ${analysis.analysis.condition}, Tags: ${analysis.analysis.tags?.join(', ') || 'none'}`);
                     
                     // Update item with AI suggestions if fields are empty
                     const updates = {};
                     if (!item.title || item.title === 'New Item') {
-                        updates.title = analysis.analysis.title;
+                        updates.title = aiResult.analysis.title;
                     }
                     if (!item.description) {
-                        updates.description = analysis.analysis.description;
+                        updates.description = aiResult.analysis.description;
                     }
                     if (!item.price || item.price === 0) {
-                        updates.price = analysis.analysis.estimated_price;
+                        updates.price = aiResult.analysis.estimated_price;
                     }
                     if (!item.category || item.category === 'Miscellaneous') {
-                        updates.category = analysis.analysis.category;
+                        updates.category = aiResult.analysis.category;
                     }
                     
                     if (Object.keys(updates).length > 0) {
-                        console.log(`[UPLOAD] Updating item with AI suggestions: ${Object.keys(updates).join(', ')}`);
                         const updateStart = Date.now();
                         await db.updateItem(itemId, updates);
-                        console.log(`[UPLOAD] Item updated in ${Date.now() - updateStart}ms`);
-                    } else {
-                        console.log('[UPLOAD] No item updates needed - all fields already have values');
+                        logger.upload.step('item_update', req.file.filename, Date.now() - updateStart, {
+                            updated_fields: Object.keys(updates),
+                            ai_suggestions: {
+                                title: aiResult.analysis.title,
+                                price: aiResult.analysis.estimated_price,
+                                category: aiResult.analysis.category
+                            }
+                        });
                     }
                 } else {
-                    console.error(`[UPLOAD] AI analysis failed: ${analysis.error}`);
-                    if (analysis.error_type) {
-                        console.error(`[UPLOAD] AI error type: ${analysis.error_type}`);
-                    }
-                    if (analysis.raw_response) {
-                        console.error(`[UPLOAD] AI raw response: ${analysis.raw_response.substring(0, 500)}...`);
-                    }
                     // Store the error information for debugging
                     aiAnalysis = JSON.stringify({
-                        error: analysis.error,
-                        error_type: analysis.error_type,
-                        raw_response: analysis.raw_response,
-                        timing: aiTiming,
-                        usage: aiUsage
+                        error: aiResult.error,
+                        error_type: aiResult.error_type,
+                        raw_response: aiResult.raw_response,
+                        timing: aiResult.timing,
+                        usage: aiResult.usage
                     });
                 }
             } catch (aiError) {
-                const aiTotalTime = Date.now() - aiStart;
-                console.error(`[UPLOAD] AI analysis exception after ${aiTotalTime}ms:`, aiError.message);
-                console.error(`[UPLOAD] AI exception stack:`, aiError.stack);
+                const aiTime = Date.now() - aiStart;
+                logger.upload.step('ai_analysis', req.file.filename, aiTime, {
+                    ai_success: false,
+                    error: aiError.message,
+                    error_type: aiError.constructor.name
+                });
                 
                 // Store the exception information
                 aiAnalysis = JSON.stringify({
                     error: aiError.message,
                     error_type: aiError.constructor.name,
-                    timing: { total_ms: aiTotalTime }
+                    timing: { total_ms: aiTime }
                 });
             }
         } else {
-            console.log('[UPLOAD] AI service not initialized, skipping analysis');
+            logger.upload.step('ai_analysis_skipped', req.file.filename, 0, {
+                reason: 'AI service not initialized'
+            });
         }
 
         // Save image record
-        console.log(`[UPLOAD] Saving image record to database...`);
+        const saveStart = Date.now();
         const imageData = {
             id: uuidv4(),
             item_id: itemId,
@@ -405,8 +441,16 @@ app.post('/api/items/:id/images', upload.single('image'), async (req, res) => {
         };
 
         await db.createImage(imageData);
+        logger.upload.step('database_save', req.file.filename, Date.now() - saveStart);
+        
         const totalTime = Date.now() - startTime;
-        console.log(`[UPLOAD] Upload completed successfully in ${totalTime}ms`);
+        
+        // Log successful completion
+        logger.upload.complete(req.file.filename, totalTime, aiResult, {
+            item_id: itemId,
+            image_id: imageData.id,
+            final_file_path: req.file.path
+        });
 
         res.status(201).json({
             message: 'Image uploaded successfully',
@@ -415,16 +459,23 @@ app.post('/api/items/:id/images', upload.single('image'), async (req, res) => {
         });
     } catch (error) {
         const totalTime = Date.now() - startTime;
-        console.error(`[UPLOAD] Error after ${totalTime}ms:`, error.message);
-        console.error(`[UPLOAD] Stack trace:`, error.stack);
+        
+        // Log the error
+        logger.upload.error(req.file?.filename || 'unknown', error, totalTime, {
+            item_id: itemId,
+            file_path: req.file?.path,
+            error_stack: error.stack
+        });
         
         // Clean up uploaded file on error
         if (req.file) {
             try {
                 fs.unlinkSync(req.file.path);
-                console.log(`[UPLOAD] Cleaned up failed upload: ${req.file.filename}`);
             } catch (err) {
-                console.warn('[UPLOAD] Failed to cleanup uploaded file:', err.message);
+                logger.error('Failed to cleanup uploaded file', {
+                    filename: req.file.filename,
+                    cleanup_error: err.message
+                });
             }
         }
         res.status(500).json({ error: error.message });
@@ -461,15 +512,211 @@ app.get('/api/categories', async (req, res) => {
     }
 });
 
+// Get AI models and usage statistics
+app.get('/api/ai/models', async (req, res) => {
+    try {
+        // Available models with their details
+        const availableModels = [
+            {
+                id: 'gpt-4o',
+                name: 'GPT-4o',
+                description: 'Most capable multimodal model, best for complex analysis',
+                pricing: {
+                    input: 0.005,
+                    output: 0.015,
+                    currency: 'USD',
+                    per: 1000
+                },
+                capabilities: ['text', 'image', 'analysis'],
+                recommended: true
+            },
+            {
+                id: 'gpt-4o-mini',
+                name: 'GPT-4o Mini',
+                description: 'Faster and more affordable, good for simple tasks',
+                pricing: {
+                    input: 0.00015,
+                    output: 0.0006,
+                    currency: 'USD',
+                    per: 1000
+                },
+                capabilities: ['text', 'image', 'analysis'],
+                recommended: false
+            },
+            {
+                id: 'gpt-4',
+                name: 'GPT-4',
+                description: 'Previous generation, high quality but slower',
+                pricing: {
+                    input: 0.03,
+                    output: 0.06,
+                    currency: 'USD',
+                    per: 1000
+                },
+                capabilities: ['text', 'image', 'analysis'],
+                recommended: false
+            },
+            {
+                id: 'gpt-3.5-turbo',
+                name: 'GPT-3.5 Turbo',
+                description: 'Fast and economical, text only',
+                pricing: {
+                    input: 0.0005,
+                    output: 0.0015,
+                    currency: 'USD',
+                    per: 1000
+                },
+                capabilities: ['text'],
+                recommended: false
+            }
+        ];
+
+        const currentModel = await db.getSetting('openai_model') || 'gpt-4o';
+        
+        res.json({
+            available_models: availableModels,
+            current_model: currentModel,
+            ai_initialized: aiService.isInitialized()
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get AI usage statistics for current session
+app.get('/api/ai/usage', async (req, res) => {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        
+        // Read AI log files for today and yesterday (to handle timezone issues)
+        const today = new Date().toISOString().split('T')[0];
+        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        
+        const aiLogPaths = [
+            path.join(__dirname, '../logs', `ai-${today}.log`),
+            path.join(__dirname, '../logs', `ai-${yesterday}.log`)
+        ];
+        
+        let sessionStats = {
+            total_cost: 0,
+            total_tokens: 0,
+            total_requests: 0,
+            operations: {
+                image_analysis: { count: 0, cost: 0, tokens: 0 },
+                description_generation: { count: 0, cost: 0, tokens: 0 }
+            },
+            session_start: new Date().toISOString()
+        };
+
+        let sessionStartTime = null;
+        
+        // Read from all available log files
+        for (const aiLogPath of aiLogPaths) {
+            if (fs.existsSync(aiLogPath)) {
+                console.log(`Reading AI log: ${aiLogPath}`);
+                const logContent = fs.readFileSync(aiLogPath, 'utf8');
+                const lines = logContent.trim().split('\n').filter(line => line.trim());
+                
+                for (const line of lines) {
+                    try {
+                        const logEntry = JSON.parse(line);
+                        
+                        // Track session start time (first entry)
+                        if (!sessionStartTime) {
+                            sessionStartTime = logEntry.timestamp;
+                        }
+                        
+                        // Count costs
+                        if (logEntry.message?.startsWith('AI_COST:')) {
+                            const operation = logEntry.operation;
+                            const cost = logEntry.estimated_cost_usd?.total_cost || 0;
+                            const tokens = logEntry.tokens?.total_tokens || 0;
+                            
+                            console.log(`Found cost entry: ${cost}, tokens: ${tokens}, operation: ${operation}`);
+                            
+                            sessionStats.total_cost += cost;
+                            sessionStats.total_tokens += tokens;
+                            sessionStats.total_requests += 1;
+                            
+                            if (sessionStats.operations[operation]) {
+                                sessionStats.operations[operation].count += 1;
+                                sessionStats.operations[operation].cost += cost;
+                                sessionStats.operations[operation].tokens += tokens;
+                            } else {
+                                // Handle cases where the operation is not pre-defined
+                                sessionStats.operations[operation] = { count: 1, cost: cost, tokens: tokens };
+                            }
+                        }
+                    } catch (parseError) {
+                        // Skip invalid JSON lines
+                        console.warn('Failed to parse log line:', parseError.message);
+                        continue;
+                    }
+                }
+            }
+        }
+        
+        if (sessionStartTime) {
+            sessionStats.session_start = sessionStartTime;
+        }
+
+        res.json(sessionStats);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update AI model
+app.put('/api/ai/model', async (req, res) => {
+    try {
+        const { model } = req.body;
+        
+        if (!model) {
+            return res.status(400).json({ error: 'Model is required' });
+        }
+        
+        // Validate model
+        const validModels = ['gpt-4o', 'gpt-4o-mini', 'gpt-4', 'gpt-3.5-turbo'];
+        if (!validModels.includes(model)) {
+            return res.status(400).json({ error: 'Invalid model specified' });
+        }
+        
+        await db.setSetting('openai_model', model);
+        
+        // Reinitialize AI service with new model
+        const apiKey = await db.getSetting('openai_api_key');
+        if (apiKey) {
+            aiService.initialize(apiKey, model);
+        }
+        
+        logger.info('AI model updated', {
+            old_model: aiService.model,
+            new_model: model,
+            timestamp: new Date().toISOString()
+        });
+        
+        res.json({ message: 'Model updated successfully', model });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
     if (error instanceof multer.MulterError) {
         if (error.code === 'LIMIT_FILE_SIZE') {
+            logger.api.error(req, error, { error_type: 'multer_file_too_large' });
             return res.status(400).json({ error: 'File too large. Maximum size is 10MB.' });
         }
     }
     
-    console.error('Server error:', error);
+    // Log all server errors
+    logger.api.error(req, error, {
+        error_type: 'server_error',
+        stack_trace: error.stack
+    });
+    
     res.status(500).json({ error: 'Internal server error' });
 });
 

@@ -189,10 +189,48 @@ export const imagesApi = {
     api.delete(`/images/${id}`).then(res => res.data),
 };
 
+// AI Usage and Models
+export const aiApi = {
+  getUsage: (): Promise<{
+    total_cost: number;
+    total_tokens: number;
+    total_requests: number;
+    operations: {
+      image_analysis: { count: number; cost: number; tokens: number };
+      description_generation: { count: number; cost: number; tokens: number };
+    };
+    session_start: string;
+  }> =>
+    api.get('/ai/usage').then(res => res.data),
+    
+  getModels: (): Promise<{
+    available_models: Array<{
+      id: string;
+      name: string;
+      description: string;
+      pricing: {
+        input: number;
+        output: number;
+        currency: string;
+        per: number;
+      };
+      capabilities: string[];
+      recommended: boolean;
+    }>;
+    current_model: string;
+    ai_initialized: boolean;
+  }> =>
+    api.get('/ai/models').then(res => res.data),
+    
+  updateModel: (model: string): Promise<{ message: string; model: string }> =>
+    api.put('/ai/model', { model }).then(res => res.data),
+};
+
 // Health check
 export const healthApi = {
   check: (): Promise<{ status: string; timestamp: string }> =>
     api.get('/health').then(res => res.data),
 };
 
+export { api };
 export default api;
