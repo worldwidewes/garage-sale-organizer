@@ -37,17 +37,24 @@ class AIService {
                         content: [
                             {
                                 type: "text",
-                                text: `Analyze this garage sale item image and provide the following information in JSON format:
+                                text: `You are an expert at creating compelling listings for online marketplaces like Craigslist, Facebook Marketplace, and eBay. Analyze this garage sale item image and create a marketplace-ready listing in JSON format:
+
                                 {
-                                    "title": "Brief, descriptive title for the item",
-                                    "description": "Detailed description including condition, features, and any notable details",
+                                    "title": "Catchy, searchable title (include brand, model, key features)",
+                                    "description": "Marketplace-style description that sells the item - highlight benefits, condition, and why someone should buy it. Write like you're trying to make a sale!",
                                     "category": "Category (e.g., Electronics, Furniture, Clothing, Books, Toys, Kitchen, Sports, etc.)",
                                     "estimated_price": "Estimated garage sale price in USD (number)",
                                     "condition": "Condition assessment (Excellent, Good, Fair, Poor)",
-                                    "tags": ["array", "of", "relevant", "keywords"]
+                                    "tags": ["array", "of", "searchable", "keywords", "buyers", "would", "search", "for"]
                                 }
                                 
-                                Focus on garage sale pricing - items should be priced to sell, typically much lower than retail. Consider the condition and desirability for garage sale shoppers.`
+                                Write the description like a successful marketplace seller would:
+                                - Start with the item's appeal and benefits
+                                - Mention condition honestly but positively
+                                - Include dimensions/specs if visible
+                                - End with a call to action
+                                - Price to sell quickly at garage sale prices (much lower than retail)
+                                - Make it sound like a great deal!`
                             },
                             {
                                 type: "image_url",

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from 'react-query';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App-full';
 import './index.css';
+import './utils/debug'; // Initialize debug system
 
 const queryClient = new QueryClient({
   defaultOptions: {

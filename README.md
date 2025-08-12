@@ -5,9 +5,10 @@ A comprehensive, AI-powered garage sale management application that helps you cr
 ## ✨ Features
 
 ### 🤖 AI-Powered Listing Creation
-- Upload photos and let AI automatically generate titles, descriptions, categories, and price estimates
-- Supports OpenAI GPT-4 Vision for accurate item analysis
-- Smart pricing suggestions based on garage sale market expectations
+- Upload photos and let AI automatically generate marketplace-style titles, descriptions, categories, and price estimates
+- Supports OpenAI GPT-4o Vision for accurate item analysis
+- Smart pricing suggestions based on garage sale market expectations (20-40% below typical market value)
+- **Note**: Current pricing uses AI's internal knowledge (training data cutoff). Future versions will integrate real-time market data.
 
 ### 📱 Dual Interface Design
 - **Admin Interface**: Full-featured management dashboard for organizing your sale

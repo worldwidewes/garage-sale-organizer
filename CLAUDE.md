@@ -62,9 +62,21 @@ RESTful API with endpoints:
 
 ### AI Integration
 - OpenAI GPT-4o (updated from deprecated gpt-4-vision-preview)
-- Generates titles, descriptions, categories, and price estimates
+- Generates marketplace-style titles, descriptions, categories, and price estimates
 - Configurable via settings panel
 - Upload progress tracking with separate upload/AI processing stages
+
+#### AI Pricing Methodology
+- **Current Implementation**: Prices based on AI's internal training data (knowledge cutoff)
+- **Pricing Strategy**: Garage sale pricing (20-40% below typical market value)
+- **Data Sources**: Training includes automotive pricing websites, marketplace listings, depreciation patterns
+- **Limitation**: No real-time market data or current pricing lookup
+- **Future Enhancement**: Plan to integrate web search or pricing APIs for real-time market validation
+
+#### Debug Logging System
+- Browser console commands: `enableDebug()` / `disableDebug()`
+- Detailed API call logging, upload progress tracking, AI analysis logging
+- Persistent localStorage setting across sessions
 
 ## Environment Setup
 - Requires Node.js 18+

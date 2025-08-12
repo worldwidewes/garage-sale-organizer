@@ -6,6 +6,7 @@ import { useCreateItem, useUploadImage } from '../hooks/useItems';
 import { categoriesApi } from '../services/api';
 import ImageUpload, { ImageGallery } from '../components/ImageUpload';
 import type { CreateItemRequest } from '../services/api';
+import { debugUI, debugAI, debugUpload } from '../utils/debug';
 
 export default function CreateItemPage() {
   const navigate = useNavigate();
@@ -19,6 +20,7 @@ export default function CreateItemPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState<'uploading' | 'processing' | 'analyzing' | 'generating' | 'complete'>();
   const [uploadMessage, setUploadMessage] = useState<string>();
+  const [isUploadingUI, setIsUploadingUI] = useState(false);
 
   const createItem = useCreateItem();
   const uploadImage = useUploadImage();
@@ -29,19 +31,25 @@ export default function CreateItemPage() {
   };
 
   const handleImageUpload = async (file: File) => {
+    debugUpload('Image upload initiated from UI', { fileName: file.name, fileSize: file.size });
+    setIsUploadingUI(true);
     setUploadProgress(0);
     setUploadStatus('uploading');
+    setUploadMessage('Starting upload...');
     
     try {
       if (!createItem.data?.id) {
+        debugUI('Creating new item first');
         // Create item first if it doesn't exist
         const newItem = await createItem.mutateAsync(formData);
+        debugUI('Item created successfully', { itemId: newItem.id });
         
         // Upload image with progress tracking
         const result = await uploadImage.mutateAsync({ 
           itemId: newItem.id, 
           file,
           onProgress: (progress) => {
+            debugUpload('Progress update', progress);
             setUploadProgress(progress.uploadProgress);
             setUploadStatus(progress.status);
             setUploadMessage(progress.message);
@@ -51,6 +59,7 @@ export default function CreateItemPage() {
         // Update form with AI analysis if available
         if (result.ai_analysis) {
           const analysis = result.ai_analysis;
+          debugAI('AI analysis received, updating form fields', analysis);
           setFormData(prev => ({
             ...prev,
             title: prev.title || analysis.title || '',
@@ -58,15 +67,19 @@ export default function CreateItemPage() {
             category: prev.category || analysis.category || '',
             price: prev.price || analysis.estimated_price || 0,
           }));
+        } else {
+          debugAI('No AI analysis returned');
         }
         
         setUploadedImages(prev => [...prev, result.image]);
       } else {
+        debugUI('Using existing item', { itemId: createItem.data.id });
         // Item already exists, just upload image
         const result = await uploadImage.mutateAsync({ 
           itemId: createItem.data.id, 
           file,
           onProgress: (progress) => {
+            debugUpload('Progress update', progress);
             setUploadProgress(progress.uploadProgress);
             setUploadStatus(progress.status);
             setUploadMessage(progress.message);
@@ -76,18 +89,24 @@ export default function CreateItemPage() {
       }
       
       // Complete the progress
+      debugUI('Upload complete, cleaning up UI state');
       setUploadProgress(100);
       setUploadStatus('complete');
+      setUploadMessage('Upload complete!');
       
       // Reset progress after a short delay
       setTimeout(() => {
+        setIsUploadingUI(false);
         setUploadProgress(0);
         setUploadStatus(undefined);
         setUploadMessage(undefined);
+        debugUI('UI state reset complete');
       }, 2000);
       
     } catch (error) {
+      debugUI('Upload failed, resetting UI state', error);
       console.error('Upload failed:', error);
+      setIsUploadingUI(false);
       setUploadProgress(0);
       setUploadStatus(undefined);
       setUploadMessage(undefined);
@@ -137,7 +156,7 @@ export default function CreateItemPage() {
           <h2 className="text-lg font-medium text-gray-900 mb-4">Photos</h2>
           <ImageUpload
             onUpload={handleImageUpload}
-            isUploading={uploadImage.isLoading}
+            isUploading={isUploadingUI}
             uploadProgress={uploadProgress}
             uploadStatus={uploadStatus}
             uploadMessage={uploadMessage}
@@ -270,9 +289,6 @@ export default function CreateItemPage() {
               className="btn btn-primary inline-flex items-center"
               disabled={isLoading || !formData.title || !formData.price}
             >
-              {isLoading && (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-              )}
               <Save className="w-4 h-4 mr-2" />
               Save Item
             </button>

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { debugAPI, debugUpload, debugProgress, debugError } from '../utils/debug';
 export interface Item {
   id: string;
   title: string;
@@ -59,6 +60,40 @@ const api = axios.create({
   timeout: 120000, // 2 minutes for file uploads
 });
 
+// Add request interceptor for debugging
+api.interceptors.request.use(
+  (config) => {
+    debugAPI(`${config.method?.toUpperCase()} ${config.url}`, {
+      params: config.params,
+      data: config.data instanceof FormData ? '[FormData]' : config.data
+    });
+    return config;
+  },
+  (error) => {
+    debugError('Request failed', error);
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for debugging
+api.interceptors.response.use(
+  (response) => {
+    debugAPI(`Response ${response.status} from ${response.config.url}`, {
+      status: response.status,
+      data: response.data
+    });
+    return response;
+  },
+  (error) => {
+    debugError(`API Error ${error.response?.status} from ${error.config?.url}`, {
+      status: error.response?.status,
+      message: error.message,
+      data: error.response?.data
+    });
+    return Promise.reject(error);
+  }
+);
+
 // Items
 export const itemsApi = {
   getAll: (params?: SearchParams): Promise<Item[]> =>
@@ -85,21 +120,10 @@ export const itemsApi = {
     image: ItemImage; 
     ai_analysis: AIAnalysis | null 
   }> => {
+    debugUpload('Starting image upload', { itemId, fileName: file.name, fileSize: file.size });
+    
     const formData = new FormData();
     formData.append('image', file);
-    
-    // Simulate more granular progress updates
-    let currentProgress = 0;
-    const progressInterval = setInterval(() => {
-      if (currentProgress < 45 && onProgress) {
-        currentProgress += Math.random() * 5;
-        onProgress({ 
-          uploadProgress: Math.min(currentProgress, 45), 
-          status: 'uploading',
-          message: 'Uploading image...'
-        });
-      }
-    }, 200);
     
     return api.post(`/items/${itemId}/images`, formData, {
       headers: {
@@ -108,38 +132,38 @@ export const itemsApi = {
       timeout: 180000, // 3 minutes for image uploads with AI processing
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
-          const uploadProgress = Math.round((progressEvent.loaded / progressEvent.total) * 50);
+          const uploadProgress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+          debugProgress(`Upload progress: ${uploadProgress}%`, {
+            loaded: progressEvent.loaded,
+            total: progressEvent.total
+          });
           onProgress({ 
             uploadProgress, 
             status: 'uploading',
-            message: `Uploading... ${uploadProgress}%`
+            message: `Uploading image... ${uploadProgress}%`
           });
         }
       },
     }).then(res => {
-      clearInterval(progressInterval);
+      debugUpload('Upload completed, starting AI processing', res.data);
       
-      // Simulate AI processing stages
+      // The backend already completed everything, just show completion
       if (onProgress) {
-        const aiStages = [
-          { progress: 55, status: 'processing' as const, message: 'Processing image...' },
-          { progress: 65, status: 'analyzing' as const, message: 'AI analyzing image...' },
-          { progress: 75, status: 'generating' as const, message: 'Generating title...' },
-          { progress: 85, status: 'generating' as const, message: 'Creating description...' },
-          { progress: 95, status: 'generating' as const, message: 'Estimating price...' },
-        ];
-        
-        aiStages.forEach((stage, index) => {
-          setTimeout(() => {
-            onProgress(stage);
-          }, index * 300);
-        });
+        // Brief processing indication then complete
+        setTimeout(() => {
+          debugProgress('AI processing complete');
+          onProgress({ 
+            uploadProgress: 100, 
+            status: 'analyzing', 
+            message: 'AI analysis complete!' 
+          });
+        }, 100);
       }
       
       return res.data;
-    }).catch(err => {
-      clearInterval(progressInterval);
-      throw err;
+    }).catch(error => {
+      debugError('Upload failed', error);
+      throw error;
     });
   },
 };
