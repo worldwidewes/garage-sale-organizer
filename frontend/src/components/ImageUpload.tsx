@@ -1,24 +1,30 @@
 import { useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, X, Loader } from 'lucide-react';
+import { Upload, X, Loader, Camera, CheckCircle, Clock } from 'lucide-react';
 import clsx from 'clsx';
 
 interface ImageUploadProps {
   onUpload: (files: File[]) => void;
+  onFilesSelected?: (files: File[]) => void;
   isUploading?: boolean;
   uploadProgress?: number;
   uploadStatus?: 'uploading' | 'processing' | 'analyzing' | 'generating' | 'complete';
   uploadMessage?: string;
   className?: string;
   multiple?: boolean;
+  pendingFiles?: File[];
 }
 
-export default function ImageUpload({ onUpload, isUploading, uploadProgress = 0, uploadStatus, uploadMessage, className, multiple = false }: ImageUploadProps) {
+export default function ImageUpload({ onUpload, onFilesSelected, isUploading, uploadProgress = 0, uploadStatus, uploadMessage, className, multiple = false, pendingFiles = [] }: ImageUploadProps) {
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
-      onUpload(acceptedFiles);
+      if (onFilesSelected) {
+        onFilesSelected(acceptedFiles);
+      } else {
+        onUpload(acceptedFiles);
+      }
     }
-  }, [onUpload]);
+  }, [onUpload, onFilesSelected]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -137,6 +143,79 @@ export function ImageGallery({ images, onDelete, className }: ImageGalleryProps)
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+interface PendingFilePreviewProps {
+  files: File[];
+  onRemove: (index: number) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  className?: string;
+}
+
+export function PendingFilePreview({ files, onRemove, onConfirm, onCancel, className }: PendingFilePreviewProps) {
+  if (files.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={clsx('border border-blue-200 bg-blue-50 rounded-lg p-4', className)}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center">
+          <Clock className="w-5 h-5 text-blue-600 mr-2" />
+          <h3 className="text-lg font-medium text-blue-900">
+            {files.length} Image{files.length > 1 ? 's' : ''} Ready for Upload
+          </h3>
+        </div>
+        <div className="flex space-x-2">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1 text-sm text-gray-600 bg-white border border-gray-300 rounded hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-1 text-sm text-white bg-blue-600 rounded hover:bg-blue-700 flex items-center"
+          >
+            <Upload className="w-4 h-4 mr-1" />
+            Upload Images
+          </button>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+        {files.map((file, index) => (
+          <div key={`${file.name}-${index}`} className="relative group">
+            <div className="w-full h-32 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center">
+              <div className="text-center">
+                <Camera className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-xs text-gray-600 truncate max-w-full px-2">
+                  {file.name}
+                </p>
+                <p className="text-xs text-gray-400">
+                  {(file.size / 1024 / 1024).toFixed(1)} MB
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => onRemove(index)}
+              className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-700"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+      
+      <div className="mt-4 p-3 bg-white rounded border border-blue-200">
+        <p className="text-sm text-blue-800">
+          <strong>Note:</strong> Images will be uploaded first. After upload, you can choose to analyze them with AI 
+          to get suggested titles, descriptions, categories, and prices.
+        </p>
+      </div>
     </div>
   );
 }

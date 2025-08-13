@@ -302,14 +302,19 @@ class AIService {
             const apiCallTime = Date.now() - apiCallStart;
 
             // Gemini doesn't provide token usage directly in the standard response.
-            // This would require a separate call to countTokens if needed.
-            // For now, we'll leave them as 0.
-            requestTokens = 0; // Placeholder
-            responseTokens = 0; // Placeholder
+            // We'll estimate tokens based on text length (rough approximation: 1 token ≈ 4 characters)
+            const promptText = prompt;
+            const responseText = content;
+            requestTokens = Math.ceil(promptText.length / 4); // Rough estimation
+            responseTokens = Math.ceil(responseText.length / 4); // Rough estimation
 
-            const estimatedCost = this.calculateCost(0, 0, this.model);
+            const estimatedCost = this.calculateCost(requestTokens, responseTokens, this.model);
 
-            logger.ai.cost('image_analysis_gemini', { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }, estimatedCost, {
+            logger.ai.cost('image_analysis_gemini', { 
+                prompt_tokens: requestTokens, 
+                completion_tokens: responseTokens, 
+                total_tokens: requestTokens + responseTokens 
+            }, estimatedCost, {
                 filename,
                 model: this.model
             });
@@ -324,7 +329,7 @@ class AIService {
                         success: true,
                         analysis: analysis,
                         timing: { total_ms: totalTime, api_call_ms: apiCallTime },
-                        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+                        usage: { prompt_tokens: requestTokens, completion_tokens: responseTokens, total_tokens: requestTokens + responseTokens }
                     };
                 } else {
                     throw new Error('No JSON found in Gemini response');
@@ -492,14 +497,23 @@ class AIService {
             const apiCallTime = Date.now() - apiCallStart;
             const totalTime = Date.now() - startTime;
 
-            const estimatedCost = this.calculateCost(0, 0, this.model);
-            logger.ai.cost('description_generation_gemini', { total_tokens: 0 }, estimatedCost, { title });
+            // Estimate tokens for Gemini
+            const promptTokens = Math.ceil(prompt.length / 4);
+            const responseTokens = Math.ceil(description.length / 4);
+            const totalTokens = promptTokens + responseTokens;
+            
+            const estimatedCost = this.calculateCost(promptTokens, responseTokens, this.model);
+            logger.ai.cost('description_generation_gemini', { 
+                prompt_tokens: promptTokens, 
+                completion_tokens: responseTokens, 
+                total_tokens: totalTokens 
+            }, estimatedCost, { title });
 
             return {
                 success: true,
                 description: description.trim(),
                 timing: { total_ms: totalTime, api_call_ms: apiCallTime },
-                usage: { total_tokens: 0 }
+                usage: { prompt_tokens: promptTokens, completion_tokens: responseTokens, total_tokens: totalTokens }
             };
 
         } catch (error) {
@@ -520,8 +534,10 @@ class AIService {
             'gpt-4o-mini': { input: 0.00015 / 1000, output: 0.0006 / 1000 },
             'gpt-4': { input: 0.03 / 1000, output: 0.06 / 1000 },
             'gpt-3.5-turbo': { input: 0.0005 / 1000, output: 0.0015 / 1000 },
-            'gemini-1.5-pro-latest': { input: 0.0035 / 1000, output: 0.0105 / 1000 }, // Placeholder pricing
-            'gemini-1.5-flash-latest': { input: 0.00035 / 1000, output: 0.00105 / 1000 }, // Placeholder pricing
+            'gemini-1.5-pro-latest': { input: 0.0035 / 1000, output: 0.0105 / 1000 },
+            'gemini-1.5-flash-latest': { input: 0.00035 / 1000, output: 0.00105 / 1000 },
+            'gemini-2.5-pro': { input: 0.0035 / 1000, output: 0.0105 / 1000 },
+            'gemini-2.5-flash': { input: 0.00035 / 1000, output: 0.00105 / 1000 },
         };
         
         const modelPricing = pricing[model];
