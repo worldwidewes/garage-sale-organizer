@@ -20,7 +20,7 @@ export default function Layout({ children }: LayoutProps) {
     <div className="min-h-screen bg-gray-50">
       <nav className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
+          <div className="flex justify-between items-center h-16 min-w-0">
             <div className="flex items-center">
               <div className="flex-shrink-0">
                 <h1 className="text-xl font-bold text-gray-900">
@@ -51,11 +51,11 @@ export default function Layout({ children }: LayoutProps) {
                 })}
               </div>
             </div>
-            <div className="flex items-center space-x-2 lg:space-x-4">
-              <APICostMeter className="hidden lg:flex" />
+            <div className="flex items-center space-x-2 lg:space-x-4 flex-shrink-0 min-w-0">
+              <APICostMeter className="flex flex-shrink-0" />
               <Link
                 to="/items/new"
-                className="btn btn-primary inline-flex items-center whitespace-nowrap"
+                className="btn btn-primary inline-flex items-center whitespace-nowrap flex-shrink-0"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Add Item

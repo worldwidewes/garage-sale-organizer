@@ -37,41 +37,44 @@ export default function APICostMeter({ className }: APICostMeterProps) {
   };
 
   return (
-    <div className={clsx('flex items-center space-x-4', className)}>
-      {/* Cost Display */}
-      <div className="flex items-center space-x-2 bg-green-50 px-3 py-1.5 rounded-lg border border-green-200">
-        <DollarSign className="w-4 h-4 text-green-600" />
-        <div className="text-sm">
-          <span className="font-medium text-green-800">
-            {usage ? formatCost(usage.total_cost) : '$0.00'}
-          </span>
-          <span className="text-green-600 ml-1">session</span>
+    <div className={clsx('flex items-center space-x-2 lg:space-x-4', className)}>
+      {/* Cost Metrics - Hidden on smaller screens */}
+      <div className="hidden md:flex items-center space-x-2 lg:space-x-4">
+        {/* Cost Display */}
+        <div className="flex items-center space-x-1 lg:space-x-2 bg-green-50 px-2 lg:px-3 py-1.5 rounded-lg border border-green-200">
+          <DollarSign className="w-4 h-4 text-green-600" />
+          <div className="text-sm">
+            <span className="font-medium text-green-800">
+              {usage ? formatCost(usage.total_cost) : '$0.00'}
+            </span>
+            <span className="text-green-600 ml-1 hidden lg:inline">session</span>
+          </div>
+        </div>
+
+        {/* Token Count */}
+        <div className="flex items-center space-x-1 lg:space-x-2 bg-blue-50 px-2 lg:px-3 py-1.5 rounded-lg border border-blue-200">
+          <Zap className="w-4 h-4 text-blue-600" />
+          <div className="text-sm">
+            <span className="font-medium text-blue-800">
+              {usage ? formatTokens(usage.total_tokens) : '0'}
+            </span>
+            <span className="text-blue-600 ml-1 hidden lg:inline">tokens</span>
+          </div>
+        </div>
+
+        {/* Request Count - Hidden on medium screens, shown on large */}
+        <div className="hidden lg:flex items-center space-x-2 bg-purple-50 px-3 py-1.5 rounded-lg border border-purple-200">
+          <Activity className="w-4 h-4 text-purple-600" />
+          <div className="text-sm">
+            <span className="font-medium text-purple-800">
+              {usage?.total_requests || 0}
+            </span>
+            <span className="text-purple-600 ml-1">requests</span>
+          </div>
         </div>
       </div>
 
-      {/* Token Count */}
-      <div className="flex items-center space-x-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
-        <Zap className="w-4 h-4 text-blue-600" />
-        <div className="text-sm">
-          <span className="font-medium text-blue-800">
-            {usage ? formatTokens(usage.total_tokens) : '0'}
-          </span>
-          <span className="text-blue-600 ml-1">tokens</span>
-        </div>
-      </div>
-
-      {/* Request Count */}
-      <div className="flex items-center space-x-2 bg-purple-50 px-3 py-1.5 rounded-lg border border-purple-200">
-        <Activity className="w-4 h-4 text-purple-600" />
-        <div className="text-sm">
-          <span className="font-medium text-purple-800">
-            {usage?.total_requests || 0}
-          </span>
-          <span className="text-purple-600 ml-1">requests</span>
-        </div>
-      </div>
-
-      {/* Model Selector */}
+      {/* Model Selector - Always visible */}
       <div className="relative">
         <button
           onClick={() => setShowDropdown(!showDropdown)}
@@ -91,7 +94,7 @@ export default function APICostMeter({ className }: APICostMeterProps) {
         </button>
 
         {showDropdown && (
-          <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+          <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-w-[calc(100vw-2rem)] md:max-w-none">
             <div className="p-2">
               <div className="text-xs font-medium text-gray-500 mb-2 px-2">SELECT AI MODEL</div>
               {currentProviderModels.map((model) => (
