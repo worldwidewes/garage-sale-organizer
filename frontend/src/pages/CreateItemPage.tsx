@@ -4,7 +4,7 @@ import { useQuery } from 'react-query';
 import { Save, ArrowLeft, Sparkles, Loader } from 'lucide-react';
 import { useCreateItem, useUploadImageOnly, useAnalyzeAllImages } from '../hooks/useItems';
 import { categoriesApi } from '../services/api';
-import ImageUpload, { ImageGallery, PendingFilePreview } from '../components/ImageUpload';
+import ImageUpload, { ImageGallery } from '../components/ImageUpload';
 import type { CreateItemRequest } from '../services/api';
 import { debugUI, debugAI, debugUpload } from '../utils/debug';
 
@@ -17,7 +17,6 @@ export default function CreateItemPage() {
     price: 0,
   });
   const [uploadedImages, setUploadedImages] = useState<any[]>([]);
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState<'uploading' | 'processing' | 'analyzing' | 'generating' | 'complete'>();
   const [uploadMessage, setUploadMessage] = useState<string>();
@@ -34,22 +33,10 @@ export default function CreateItemPage() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleFilesSelected = (files: File[]) => {
-    setPendingFiles(prev => [...prev, ...files]);
-  };
-
-  const handleRemovePendingFile = (index: number) => {
-    setPendingFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleCancelPending = () => {
-    setPendingFiles([]);
-  };
-
-  const handleConfirmUpload = async () => {
-    if (pendingFiles.length === 0) return;
+  const handleFilesSelected = async (files: File[]) => {
+    // Auto-upload files immediately when selected
+    debugUpload('Auto-uploading selected files', { fileCount: files.length });
     
-    debugUpload('Starting batch upload (no AI analysis)', { fileCount: pendingFiles.length });
     setIsUploadingUI(true);
     setUploadProgress(0);
     setUploadStatus('uploading');
@@ -64,13 +51,12 @@ export default function CreateItemPage() {
         debugUI('Item created successfully', { itemId: item.id });
       }
       
-      const totalFiles = pendingFiles.length;
+      const totalFiles = files.length;
       let processedFiles = 0;
       
-      for (const file of pendingFiles) {
+      for (const file of files) {
         debugUpload(`Uploading file ${processedFiles + 1}/${totalFiles}`, { fileName: file.name });
         
-        // Upload without AI analysis
         const result = await uploadImageOnly.mutateAsync({ 
           itemId: item.id, 
           file,
@@ -87,12 +73,9 @@ export default function CreateItemPage() {
         processedFiles++;
       }
       
-      // Complete the progress
-      debugUI('Batch upload complete, cleaning up UI state');
       setUploadProgress(100);
       setUploadStatus('complete');
-      setUploadMessage(`All ${totalFiles} images uploaded!`);
-      setPendingFiles([]);
+      setUploadMessage(`${totalFiles} image${totalFiles > 1 ? 's' : ''} uploaded successfully!`);
       
       // Reset progress after a short delay
       setTimeout(() => {
@@ -100,19 +83,19 @@ export default function CreateItemPage() {
         setUploadProgress(0);
         setUploadStatus(undefined);
         setUploadMessage(undefined);
-        debugUI('UI state reset complete');
+        debugUI('Auto-upload UI state reset complete');
       }, 2000);
       
     } catch (error) {
-      debugUI('Batch upload failed, resetting UI state', error);
-      console.error('Batch upload failed:', error);
+      debugUI('Auto-upload failed, resetting UI state', error);
+      console.error('Auto-upload failed:', error);
       setIsUploadingUI(false);
       setUploadProgress(0);
       setUploadStatus(undefined);
       setUploadMessage(undefined);
-      setPendingFiles([]);
     }
   };
+
 
   const handleAnalyzeWithAI = async () => {
     if (!createItem.data?.id || uploadedImages.length === 0) return;
@@ -184,7 +167,6 @@ export default function CreateItemPage() {
   };
 
   const isLoading = createItem.isLoading || uploadImageOnly.isLoading;
-  const showAnalyzeButton = uploadedImages.length > 0 && !hasAnalyzed && !isAnalyzing;
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
@@ -198,7 +180,7 @@ export default function CreateItemPage() {
         </button>
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Add New Item</h1>
-          <p className="text-gray-600">Upload photos and let AI help create your listing</p>
+          <p className="text-gray-600">Photos upload automatically, then analyze with AI to create your listing</p>
         </div>
       </div>
 
@@ -207,26 +189,13 @@ export default function CreateItemPage() {
         <div className="card">
           <h2 className="text-lg font-medium text-gray-900 mb-4">Photos</h2>
           <ImageUpload
-            onFilesSelected={handleFilesSelected}
-            onUpload={() => {}} // Not used with confirmation flow
+            onUpload={handleFilesSelected}
             isUploading={isUploadingUI}
             uploadProgress={uploadProgress}
             uploadStatus={uploadStatus}
             uploadMessage={uploadMessage}
             multiple={true}
-            pendingFiles={pendingFiles}
           />
-          
-          {pendingFiles.length > 0 && (
-            <div className="mt-6">
-              <PendingFilePreview
-                files={pendingFiles}
-                onRemove={handleRemovePendingFile}
-                onConfirm={handleConfirmUpload}
-                onCancel={handleCancelPending}
-              />
-            </div>
-          )}
           
           {uploadedImages.length > 0 && (
             <div className="mt-6">
@@ -239,24 +208,23 @@ export default function CreateItemPage() {
             </div>
           )}
           
-          {showAnalyzeButton && (
+          {uploadedImages.length > 0 && !hasAnalyzed && !isUploadingUI && !isAnalyzing && (
             <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <Sparkles className="w-5 h-5 text-green-600 mr-2" />
                   <div>
                     <p className="text-sm font-medium text-green-900">
-                      Images Uploaded Successfully
+                      {uploadedImages.length} Image{uploadedImages.length > 1 ? 's' : ''} Ready
                     </p>
                     <p className="text-sm text-green-700">
-                      Ready to analyze {uploadedImages.length} image{uploadedImages.length > 1 ? 's' : ''} with AI?
+                      Analyze with AI to get suggested titles, descriptions, and pricing?
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={handleAnalyzeWithAI}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center transition-colors"
-                  disabled={isAnalyzing}
                 >
                   <Sparkles className="w-4 h-4 mr-2" />
                   Analyze with AI
@@ -264,6 +232,7 @@ export default function CreateItemPage() {
               </div>
             </div>
           )}
+          
 
           {(isAnalyzing || (isUploadingUI && uploadStatus === 'analyzing')) && (
             <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
