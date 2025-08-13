@@ -3,6 +3,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger');
+const MCPClient = require('./mcp-client');
 
 class AIService {
     constructor() {
@@ -10,10 +11,12 @@ class AIService {
         this.gemini = null;
         this.provider = 'openai'; // 'openai' or 'gemini'
         this.model = 'gpt-4o';
+        this.mcpClient = new MCPClient();
+        this.mcpEnabled = false;
     }
 
-    initialize(config) {
-        const { provider, openAIKey, geminiKey, model } = config;
+    async initialize(config) {
+        const { provider, openAIKey, geminiKey, model, enableMCP = true } = config;
 
         if (provider === 'openai' && openAIKey) {
             this.openai = new OpenAI({
@@ -29,6 +32,18 @@ class AIService {
             this.provider = 'gemini';
             this.model = model || 'gemini-2.5-pro';
             console.log(`[AI] Service initialized with provider: Gemini, model: ${this.model}`);
+        }
+
+        // Initialize MCP client for enhanced pricing
+        if (enableMCP) {
+            try {
+                await this.mcpClient.initialize();
+                this.mcpEnabled = true;
+                console.log(`[AI] MCP client initialized successfully`);
+            } catch (error) {
+                console.warn(`[AI] Failed to initialize MCP client: ${error.message}`);
+                this.mcpEnabled = false;
+            }
         }
     }
 
@@ -554,6 +569,107 @@ class AIService {
             total_cost: inputCost + outputCost,
             currency: 'USD'
         };
+    }
+
+    async analyzeImageWithMarketData(imagePath) {
+        logger.ai.info(`Starting enhanced image analysis with market data`, {
+            operation: 'enhanced_image_analysis',
+            filename: path.basename(imagePath),
+            mcp_enabled: this.mcpEnabled
+        });
+
+        // First, do the regular AI analysis
+        const aiAnalysis = await this.analyzeImage(imagePath);
+        
+        if (!aiAnalysis.success) {
+            return aiAnalysis;
+        }
+
+        // If MCP is enabled, enhance with real market data
+        if (this.mcpEnabled && aiAnalysis.analysis) {
+            try {
+                const { title, category } = aiAnalysis.analysis;
+                
+                // Search for market data
+                logger.ai.info(`Searching for market data`, {
+                    operation: 'market_data_search',
+                    title,
+                    category
+                });
+
+                const marketResult = await this.mcpClient.comparePrices(title, ['ebay']);
+                
+                if (!marketResult.success) {
+                    throw new Error(marketResult.error || 'Market data search failed');
+                }
+
+                const marketData = marketResult.data;
+                
+                // Enhance the analysis with market data
+                const enhancedAnalysis = {
+                    ...aiAnalysis.analysis,
+                    market_data: marketData,
+                    pricing_enhanced: true
+                };
+
+                // Update price recommendation based on market data
+                if (marketData.overall_recommendation) {
+                    const marketPrice = marketData.overall_recommendation.garage_sale_price_range.suggested;
+                    const aiPrice = aiAnalysis.analysis.estimated_price;
+                    
+                    enhancedAnalysis.original_ai_price = aiPrice;
+                    enhancedAnalysis.market_based_price = marketPrice;
+                    enhancedAnalysis.estimated_price = marketPrice || aiPrice; // Use market price if available
+                    enhancedAnalysis.price_confidence = marketData.price_data.ebay?.sample_size > 0 ? 'high' : 'low';
+                    enhancedAnalysis.pricing_source = marketPrice ? 'market_data' : 'ai_estimate';
+                }
+
+                logger.ai.info(`Enhanced analysis completed`, {
+                    operation: 'enhanced_image_analysis',
+                    title,
+                    original_price: aiAnalysis.analysis.estimated_price,
+                    market_price: enhancedAnalysis.market_based_price,
+                    final_price: enhancedAnalysis.estimated_price,
+                    pricing_source: enhancedAnalysis.pricing_source
+                });
+
+                return {
+                    ...aiAnalysis,
+                    analysis: enhancedAnalysis
+                };
+
+            } catch (mcpError) {
+                logger.ai.warn(`MCP enhancement failed, using AI-only analysis`, {
+                    operation: 'enhanced_image_analysis',
+                    mcp_error: mcpError.message
+                });
+                
+                // Return original AI analysis with MCP error noted
+                return {
+                    ...aiAnalysis,
+                    analysis: {
+                        ...aiAnalysis.analysis,
+                        pricing_enhanced: false,
+                        mcp_error: mcpError.message
+                    }
+                };
+            }
+        }
+
+        // Return regular AI analysis if MCP not enabled
+        return {
+            ...aiAnalysis,
+            analysis: {
+                ...aiAnalysis.analysis,
+                pricing_enhanced: false
+            }
+        };
+    }
+
+    async shutdown() {
+        if (this.mcpEnabled && this.mcpClient) {
+            await this.mcpClient.shutdown();
+        }
     }
 
     getMimeType(filePath) {

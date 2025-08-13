@@ -126,7 +126,7 @@ async function initializeAI() {
 
         const config = { provider, openAIKey, geminiKey, model };
         
-        aiService.initialize(config);
+        await aiService.initialize(config);
 
         if (aiService.isInitialized()) {
             console.log(`AI service initialized successfully for provider: ${aiService.provider}`);
@@ -362,7 +362,7 @@ app.post('/api/items/:id/images', upload.single('image'), async (req, res) => {
         if (aiService.isInitialized() && !skipAI) {
             const aiStart = Date.now();
             try {
-                aiResult = await aiService.analyzeImage(req.file.path);
+                aiResult = await aiService.analyzeImageWithMarketData(req.file.path);
                 const aiTime = Date.now() - aiStart;
                 
                 logger.upload.step('ai_analysis', req.file.filename, aiTime, {
@@ -536,7 +536,7 @@ app.post('/api/items/:id/analyze', async (req, res) => {
             const imagePaths = images.map(img => img.filepath);
             
             // Use the AI service to analyze multiple images
-            aiResult = await aiService.analyzeImage(imagePaths[0]); // For now, use first image
+            aiResult = await aiService.analyzeImageWithMarketData(imagePaths[0]); // For now, use first image
             // TODO: Implement proper multi-image analysis in AI service
             
             const aiTime = Date.now() - aiStart;
