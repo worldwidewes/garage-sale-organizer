@@ -36,9 +36,11 @@ This is a full-stack garage sale organizer with AI-powered item analysis:
 ### Key Backend Components
 - `server.js`: Main Express server with API routes
 - `database.js`: SQLite database operations and schema
-- `ai-service.js`: OpenAI integration for image analysis
+- `ai-service.js`: Multi-provider AI service (OpenAI + Gemini) with cost tracking
+- `logger.js`: Winston-based structured logging system with daily rotation
 - Database: SQLite stored in `database/garage_sale.db`
 - File uploads: Images stored in `uploads/images/`, thumbnails in `uploads/thumbnails/`
+- Logs: Structured logs in `logs/` directory (ai, api, app, uploads, errors)
 
 ### Shared Resources
 - `shared/types.ts`: TypeScript interfaces used across frontend and backend
@@ -47,9 +49,13 @@ This is a full-stack garage sale organizer with AI-powered item analysis:
 ### API Structure
 RESTful API with endpoints:
 - `/api/items` - CRUD operations for items
-- `/api/items/:id/images` - Image upload handling
+- `/api/items/:id/images` - Image upload handling (supports `?skipAI=true` for upload-only)
+- `/api/items/:id/analyze` - Batch AI analysis of uploaded images
 - `/api/settings` - Configuration management
 - `/api/categories` - Category listings
+- `/api/ai/usage` - Real-time AI cost and token usage statistics
+- `/api/ai/models` - Available AI models and current provider info
+- `/api/ai/provider` - Get/update current AI provider and model
 
 ### Frontend Architecture
 - React with TypeScript
@@ -61,10 +67,14 @@ RESTful API with endpoints:
 - Page components in `pages/`
 
 ### AI Integration
-- OpenAI GPT-4o (updated from deprecated gpt-4-vision-preview)
+- **Multi-Provider Support**: OpenAI GPT-4o and Google Gemini with runtime switching
+- **Upload-First Workflow**: Images uploaded separately from AI analysis for better UX
+- **Two-Stage Process**: 
+  1. Upload multiple images without AI processing (`uploadImageOnly`)
+  2. Batch AI analysis with user confirmation (`analyzeAllImages`)
 - Generates marketplace-style titles, descriptions, categories, and price estimates
-- Configurable via settings panel
-- Upload progress tracking with separate upload/AI processing stages
+- Configurable via settings panel with provider/model selection
+- Real-time cost tracking and usage statistics display
 
 #### AI Pricing Methodology
 - **Current Implementation**: Prices based on AI's internal training data (knowledge cutoff)
@@ -73,16 +83,19 @@ RESTful API with endpoints:
 - **Limitation**: No real-time market data or current pricing lookup
 - **Future Enhancement**: Plan to integrate web search or pricing APIs for real-time market validation
 
-#### Debug Logging System
-- Browser console commands: `enableDebug()` / `disableDebug()`
-- Detailed API call logging, upload progress tracking, AI analysis logging
-- Persistent localStorage setting across sessions
+#### Logging and Debugging
+- **Structured Backend Logging**: Winston with daily rotation, JSON format
+- **Frontend Debug System**: Browser console commands `enableDebug()` / `disableDebug()`
+- **Comprehensive Coverage**: API calls, upload progress, AI analysis, cost tracking
+- **Log Categories**: ai, api, app, uploads, errors (separate files)
+- **Cost Tracking**: Real-time session cost aggregation from log analysis
 
 ## Environment Setup
 - Requires Node.js 18+
-- Optional OpenAI API key for AI features
+- Optional AI API keys: OpenAI and/or Google Gemini for AI features
 - SQLite database auto-created on first run
 - No additional database setup required
+- Logs directory auto-created in project root
 
 ## File Structure Notes
 - Upload directories are auto-created by backend
@@ -104,3 +117,24 @@ If encountering issues, restart all servers:
 pkill -f "node.*server.js" && pkill -f "vite"
 npm run dev
 ```
+
+## Important Development Notes
+
+### AI Provider Configuration
+- The system supports both OpenAI and Gemini providers with runtime switching
+- Gemini token usage is estimated (text length / 4) since API doesn't provide exact counts
+- Cost tracking aggregates from structured logs in real-time
+- Provider settings persist across sessions and affect all new AI operations
+
+### Upload Workflow Architecture
+- **Modern Flow**: Upload images first → User confirms → Batch AI analysis
+- **Legacy Support**: Direct upload with immediate AI analysis still available
+- Frontend components: `ImageUpload`, `PendingFilePreview`, `ImageGallery`
+- Backend endpoints: `/images?skipAI=true` for upload-only, `/analyze` for batch processing
+
+### Cost Tracking System
+- Real-time session cost display in frontend (`APICostMeter` component)
+- Backend aggregates costs from daily log files (`/api/ai/usage`)
+- Supports both OpenAI (exact tokens) and Gemini (estimated tokens)
+- Cost calculations include current model pricing for both providers
+- do not attribute any commit messages to claude code
