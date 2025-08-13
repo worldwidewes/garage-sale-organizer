@@ -169,6 +169,66 @@ export const itemsApi = {
       throw error;
     });
   },
+
+  uploadImageOnly: (
+    itemId: string,
+    file: File,
+    onProgress?: (progress: { uploadProgress: number; status: 'uploading'; message?: string }) => void
+  ): Promise<{ message: string; image: ItemImage }> => {
+    const formData = new FormData();
+    formData.append('image', file);
+    
+    debugUpload('Starting image-only upload', {
+      itemId,
+      fileName: file.name,
+      fileSize: file.size
+    });
+    
+    return api.post(`/items/${itemId}/images?skipAI=true`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 180000, // 3 minutes
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const uploadProgress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+          debugProgress(`Upload progress: ${uploadProgress}%`, {
+            loaded: progressEvent.loaded,
+            total: progressEvent.total
+          });
+          onProgress({ 
+            uploadProgress, 
+            status: 'uploading',
+            message: `Uploading image... ${uploadProgress}%`
+          });
+        }
+      },
+    }).then(res => {
+      debugUpload('Image-only upload completed', res.data);
+      return res.data;
+    }).catch(error => {
+      debugError('Image-only upload failed', error);
+      throw error;
+    });
+  },
+
+  analyzeAllImages: (itemId: string): Promise<{
+    message: string;
+    analysis: AIAnalysis;
+    updated_images: number;
+  }> => {
+    debugUpload('Starting batch AI analysis', { itemId });
+    
+    return api.post(`/items/${itemId}/analyze`, {}, {
+      timeout: 300000, // 5 minutes for batch analysis
+    }).then(res => {
+      debugUpload('Batch AI analysis completed', res.data);
+      return res.data;
+    }).catch(error => {
+      debugError('Batch AI analysis failed', error);
+      throw error;
+    });
+  },
 };
 
 // Settings

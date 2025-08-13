@@ -27,7 +27,11 @@ interface AIUsageStats {
 }
 
 interface AIModelsResponse {
-  available_models: AIModel[];
+  available_models: {
+    openai: AIModel[];
+    gemini: AIModel[];
+  };
+  current_provider: 'openai' | 'gemini';
   current_model: string;
   ai_initialized: boolean;
 }
@@ -67,7 +71,10 @@ export function useAIUsage() {
     try {
       setLoading(true);
       setError(null);
-      await aiApi.updateModel(modelId);
+      
+      // Get current provider from models state
+      const provider = models?.current_provider || 'openai';
+      await aiApi.updateProvider({ provider, model: modelId });
       
       // Refresh models data to get updated current_model
       await fetchModels();

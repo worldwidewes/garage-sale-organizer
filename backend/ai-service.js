@@ -25,10 +25,9 @@ class AIService {
             this.model = model || 'gpt-4o';
             console.log(`[AI] Service initialized with provider: OpenAI, model: ${this.model}`);
         } else if (provider === 'gemini' && geminiKey) {
-            const genAI = new GoogleGenerativeAI(geminiKey);
-            this.gemini = genAI.getGenerativeModel({ model: model || "gemini-1.5-pro-latest" });
+            this.gemini = new GoogleGenerativeAI(geminiKey);
             this.provider = 'gemini';
-            this.model = model || 'gemini-1.5-pro-latest';
+            this.model = model || 'gemini-2.5-pro';
             console.log(`[AI] Service initialized with provider: Gemini, model: ${this.model}`);
         }
     }
@@ -293,8 +292,11 @@ class AIService {
                 },
             };
 
+            // Get the generative model
+            const model = this.gemini.getGenerativeModel({ model: this.model });
+
             const apiCallStart = Date.now();
-            const result = await this.gemini.generateContent([prompt, imagePart]);
+            const result = await model.generateContent([prompt, imagePart]);
             const response = await result.response;
             const content = response.text();
             const apiCallTime = Date.now() - apiCallStart;
@@ -480,14 +482,17 @@ class AIService {
                 
                 Make it appealing to garage sale shoppers, mention condition and any key features. Keep it concise but descriptive (2-3 sentences).`;
 
+            // Get the generative model
+            const model = this.gemini.getGenerativeModel({ model: this.model });
+
             const apiCallStart = Date.now();
-            const result = await this.gemini.generateContent(prompt);
+            const result = await model.generateContent(prompt);
             const response = await result.response;
             const description = response.text();
             const apiCallTime = Date.now() - apiCallStart;
             const totalTime = Date.now() - startTime;
 
-            const estimatedCost = this.calculateCost(0, 0, 'gemini-1.5-pro-latest');
+            const estimatedCost = this.calculateCost(0, 0, this.model);
             logger.ai.cost('description_generation_gemini', { total_tokens: 0 }, estimatedCost, { title });
 
             return {

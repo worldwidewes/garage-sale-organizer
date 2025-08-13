@@ -164,6 +164,34 @@ class Database {
         });
     }
 
+    async updateImage(id, updates) {
+        return new Promise((resolve, reject) => {
+            const fields = [];
+            const values = [];
+            
+            Object.keys(updates).forEach(key => {
+                fields.push(`${key} = ?`);
+                values.push(updates[key]);
+            });
+            
+            if (fields.length === 0) {
+                resolve({ id, changes: 0 });
+                return;
+            }
+            
+            values.push(id);
+            const sql = `UPDATE images SET ${fields.join(', ')} WHERE id = ?`;
+            
+            this.db.run(sql, values, function(err) {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve({ id, changes: this.changes });
+                }
+            });
+        });
+    }
+
     async deleteImage(id) {
         return new Promise((resolve, reject) => {
             const sql = 'DELETE FROM images WHERE id = ?';

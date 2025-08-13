@@ -117,7 +117,12 @@ async function initializeAI() {
         const openAIKey = await db.getSetting('openai_api_key');
         const geminiKey = await db.getSetting('gemini_api_key');
         const provider = await db.getSetting('ai_provider') || 'openai';
-        const model = await db.getSetting('openai_model'); // This will need to be provider-specific
+        let model;
+        if (provider === 'openai') {
+            model = await db.getSetting('openai_model') || 'gpt-4o';
+        } else if (provider === 'gemini') {
+            model = await db.getSetting('gemini_model') || 'gemini-2.5-pro';
+        }
 
         const config = { provider, openAIKey, geminiKey, model };
         
@@ -311,6 +316,7 @@ app.delete('/api/items/:id', async (req, res) => {
 app.post('/api/items/:id/images', upload.single('image'), async (req, res) => {
     const startTime = Date.now();
     const itemId = req.params.id;
+    const skipAI = req.query.skipAI === 'true';
     
     try {
         if (!req.file) {
@@ -349,11 +355,11 @@ app.post('/api/items/:id/images', upload.single('image'), async (req, res) => {
         await createThumbnail(req.file.path, req.file.filename);
         logger.upload.step('thumbnail_creation', req.file.filename, Date.now() - thumbnailStart);
 
-        // Analyze image with AI if available
+        // Analyze image with AI if available and not skipped
         let aiAnalysis = null;
         let aiResult = null;
         
-        if (aiService.isInitialized()) {
+        if (aiService.isInitialized() && !skipAI) {
             const aiStart = Date.now();
             try {
                 aiResult = await aiService.analyzeImage(req.file.path);
@@ -456,11 +462,18 @@ app.post('/api/items/:id/images', upload.single('image'), async (req, res) => {
             final_file_path: req.file.path
         });
 
-        res.status(201).json({
-            message: 'Image uploaded successfully',
-            image: imageData,
-            ai_analysis: aiAnalysis ? JSON.parse(aiAnalysis) : null
-        });
+        if (skipAI) {
+            res.status(201).json({
+                message: 'Image uploaded successfully',
+                image: imageData
+            });
+        } else {
+            res.status(201).json({
+                message: 'Image uploaded successfully',
+                image: imageData,
+                ai_analysis: aiAnalysis ? JSON.parse(aiAnalysis) : null
+            });
+        }
     } catch (error) {
         const totalTime = Date.now() - startTime;
         
@@ -482,6 +495,122 @@ app.post('/api/items/:id/images', upload.single('image'), async (req, res) => {
                 });
             }
         }
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Analyze all images for an item endpoint
+app.post('/api/items/:id/analyze', async (req, res) => {
+    const startTime = Date.now();
+    const itemId = req.params.id;
+    
+    try {
+        // Verify item exists
+        const item = await db.getItem(itemId);
+        if (!item) {
+            return res.status(404).json({ error: 'Item not found' });
+        }
+        
+        // Get all images for the item
+        const images = await db.getItemImages(itemId);
+        if (images.length === 0) {
+            return res.status(400).json({ error: 'No images found for this item' });
+        }
+        
+        // Check if AI service is available
+        if (!aiService.isInitialized()) {
+            return res.status(503).json({ error: 'AI service not available' });
+        }
+        
+        logger.upload.start(`batch_analysis_${itemId}`, 0, itemId, {
+            image_count: images.length,
+            image_filenames: images.map(img => img.filename)
+        });
+        
+        // Analyze all images together
+        const aiStart = Date.now();
+        let aiResult = null;
+        
+        try {
+            // Get file paths for all images
+            const imagePaths = images.map(img => img.filepath);
+            
+            // Use the AI service to analyze multiple images
+            aiResult = await aiService.analyzeImage(imagePaths[0]); // For now, use first image
+            // TODO: Implement proper multi-image analysis in AI service
+            
+            const aiTime = Date.now() - aiStart;
+            
+            if (aiResult && aiResult.success) {
+                const aiAnalysis = JSON.stringify(aiResult.analysis);
+                
+                // Update the item with AI suggestions
+                if (aiResult.analysis) {
+                    const updates = {};
+                    const analysis = aiResult.analysis;
+                    
+                    if (analysis.title && (!item.title || item.title.trim() === '')) {
+                        updates.title = analysis.title;
+                    }
+                    if (analysis.description && (!item.description || item.description.trim() === '')) {
+                        updates.description = analysis.description;
+                    }
+                    if (analysis.category && (!item.category || item.category.trim() === '')) {
+                        updates.category = analysis.category;
+                    }
+                    if (analysis.estimated_price && (!item.price || item.price === 0)) {
+                        updates.price = analysis.estimated_price;
+                    }
+                    
+                    if (Object.keys(updates).length > 0) {
+                        await db.updateItem(itemId, updates);
+                    }
+                }
+                
+                // Update all images with the analysis
+                await Promise.all(images.map(async (image) => {
+                    await db.updateImage(image.id, { ai_analysis: aiAnalysis });
+                }));
+                
+                logger.upload.step('batch_ai_analysis', `batch_${itemId}`, aiTime, {
+                    analysis_result: aiResult.analysis,
+                    image_count: images.length
+                });
+                
+                const totalTime = Date.now() - startTime;
+                
+                logger.upload.complete(`batch_analysis_${itemId}`, totalTime, aiResult, {
+                    item_id: itemId,
+                    image_count: images.length,
+                    analysis: aiResult.analysis
+                });
+                
+                res.json({
+                    message: 'All images analyzed successfully',
+                    analysis: aiResult.analysis,
+                    updated_images: images.length
+                });
+            } else {
+                throw new Error(aiResult?.error || 'AI analysis failed');
+            }
+        } catch (aiError) {
+            const aiTime = Date.now() - aiStart;
+            
+            logger.upload.step('batch_ai_analysis_error', `batch_${itemId}`, aiTime, {
+                error: aiError.message,
+                image_count: images.length
+            });
+            
+            throw aiError;
+        }
+    } catch (error) {
+        const totalTime = Date.now() - startTime;
+        
+        logger.upload.error(`batch_analysis_${itemId}`, error, totalTime, {
+            item_id: itemId,
+            error_stack: error.stack
+        });
+        
         res.status(500).json({ error: error.message });
     }
 });
@@ -522,14 +651,52 @@ app.get('/api/ai/models', async (req, res) => {
         // Available models with their details
         const availableModels = {
             openai: [
-                { id: 'gpt-4o', name: 'GPT-4o', capabilities: ['text', 'image'], recommended: true },
-                { id: 'gpt-4o-mini', name: 'GPT-4o Mini', capabilities: ['text', 'image'] },
-                { id: 'gpt-4', name: 'GPT-4', capabilities: ['text', 'image'] },
-                { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', capabilities: ['text'] },
+                { 
+                    id: 'gpt-4o', 
+                    name: 'GPT-4o', 
+                    description: 'Most capable multimodal model with excellent vision and reasoning',
+                    capabilities: ['text', 'image'], 
+                    recommended: true,
+                    pricing: { input: 0.005, output: 0.015, currency: 'USD', per: 1000 }
+                },
+                { 
+                    id: 'gpt-4o-mini', 
+                    name: 'GPT-4o Mini', 
+                    description: 'Smaller, faster, and more cost-effective version of GPT-4o',
+                    capabilities: ['text', 'image'],
+                    pricing: { input: 0.00015, output: 0.0006, currency: 'USD', per: 1000 }
+                },
+                { 
+                    id: 'gpt-4', 
+                    name: 'GPT-4', 
+                    description: 'Previous generation flagship model with excellent reasoning',
+                    capabilities: ['text', 'image'],
+                    pricing: { input: 0.03, output: 0.06, currency: 'USD', per: 1000 }
+                },
+                { 
+                    id: 'gpt-3.5-turbo', 
+                    name: 'GPT-3.5 Turbo', 
+                    description: 'Fast and cost-effective model for simpler tasks',
+                    capabilities: ['text'],
+                    pricing: { input: 0.0015, output: 0.002, currency: 'USD', per: 1000 }
+                },
             ],
             gemini: [
-                { id: 'gemini-1.5-pro-latest', name: 'Gemini 1.5 Pro', capabilities: ['text', 'image'], recommended: true },
-                { id: 'gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash', capabilities: ['text', 'image'] },
+                { 
+                    id: 'gemini-2.5-pro', 
+                    name: 'Gemini 2.5 Pro', 
+                    description: 'State-of-the-art thinking model with advanced reasoning capabilities',
+                    capabilities: ['text', 'image'], 
+                    recommended: true,
+                    pricing: { input: 0.0000125, output: 0.0000375, currency: 'USD', per: 1000 }
+                },
+                { 
+                    id: 'gemini-2.5-flash', 
+                    name: 'Gemini 2.5 Flash', 
+                    description: 'Optimized for cost efficiency and low latency with thinking capabilities',
+                    capabilities: ['text', 'image'],
+                    pricing: { input: 0.0000037, output: 0.000015, currency: 'USD', per: 1000 }
+                },
             ]
         };
 

@@ -4,18 +4,19 @@ import { Upload, X, Loader } from 'lucide-react';
 import clsx from 'clsx';
 
 interface ImageUploadProps {
-  onUpload: (file: File) => void;
+  onUpload: (files: File[]) => void;
   isUploading?: boolean;
   uploadProgress?: number;
   uploadStatus?: 'uploading' | 'processing' | 'analyzing' | 'generating' | 'complete';
   uploadMessage?: string;
   className?: string;
+  multiple?: boolean;
 }
 
-export default function ImageUpload({ onUpload, isUploading, uploadProgress = 0, uploadStatus, uploadMessage, className }: ImageUploadProps) {
+export default function ImageUpload({ onUpload, isUploading, uploadProgress = 0, uploadStatus, uploadMessage, className, multiple = false }: ImageUploadProps) {
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
-      onUpload(acceptedFiles[0]);
+      onUpload(acceptedFiles);
     }
   }, [onUpload]);
 
@@ -24,7 +25,7 @@ export default function ImageUpload({ onUpload, isUploading, uploadProgress = 0,
     accept: {
       'image/*': ['.jpeg', '.jpg', '.png', '.gif', '.webp'],
     },
-    multiple: false,
+    multiple,
     disabled: isUploading,
   });
 
@@ -78,14 +79,16 @@ export default function ImageUpload({ onUpload, isUploading, uploadProgress = 0,
         <div className="flex flex-col items-center">
           <Upload className="w-12 h-12 text-gray-400 mb-4" />
           {isDragActive ? (
-            <p className="text-sm text-blue-600">Drop the image here...</p>
+            <p className="text-sm text-blue-600">
+              Drop the {multiple ? 'images' : 'image'} here...
+            </p>
           ) : (
             <div>
               <p className="text-sm text-gray-600 mb-1">
-                Drop an image here, or click to select
+                Drop {multiple ? 'images' : 'an image'} here, or click to select
               </p>
               <p className="text-xs text-gray-400">
-                Supports JPEG, PNG, GIF, WebP (max 10MB)
+                Supports JPEG, PNG, GIF, WebP (max 10MB {multiple ? 'each' : ''})
               </p>
             </div>
           )}

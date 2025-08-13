@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Edit3, Trash2, Upload, Save, X, Sparkles } from 'lucide-react';
-import { useItem, useUpdateItem, useDeleteItem, useUploadImage } from '../hooks/useItems';
+import { useItem, useUpdateItem, useDeleteItem, useUploadImage, useUploadImageOnly, useAnalyzeAllImages } from '../hooks/useItems';
 import ImageUpload, { ImageGallery } from '../components/ImageUpload';
 import type { Item } from '../services/api';
 
@@ -10,12 +10,17 @@ export default function ItemDetailsPage() {
   const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
+  const [showAnalyzeConfirm, setShowAnalyzeConfirm] = useState(false);
   const [editData, setEditData] = useState<Partial<Item>>({});
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState<boolean>(false);
 
   const { data: item, isLoading, error } = useItem(id!);
   const updateItem = useUpdateItem();
   const deleteItem = useDeleteItem();
   const uploadImage = useUploadImage();
+  const uploadImageOnly = useUploadImageOnly();
+  const analyzeAllImages = useAnalyzeAllImages();
 
   const handleEdit = () => {
     setEditData({
@@ -55,17 +60,41 @@ export default function ItemDetailsPage() {
     }
   };
 
-  const handleImageUpload = async (file: File) => {
+  const handleImageUpload = async (files: File[]) => {
     if (!id) return;
     
     try {
-      const result = await uploadImage.mutateAsync({ itemId: id, file });
+      setUploadingFiles(true);
+      setPendingFiles(files);
+      
+      // Upload all files without AI analysis
+      await Promise.all(
+        files.map(file => 
+          uploadImageOnly.mutateAsync({ itemId: id, file })
+        )
+      );
+      
+      setUploadingFiles(false);
+      setShowUpload(false);
+      setShowAnalyzeConfirm(true);
+    } catch (error) {
+      console.error('Failed to upload images:', error);
+      setUploadingFiles(false);
+      setPendingFiles([]);
+    }
+  };
+
+  const handleConfirmAnalysis = async () => {
+    if (!id) return;
+    
+    try {
+      const result = await analyzeAllImages.mutateAsync(id);
       
       // If AI analysis provided suggestions and we're not editing, offer to apply them
-      if (result.ai_analysis && !isEditing) {
-        const analysis = result.ai_analysis;
+      if (result.analysis && !isEditing) {
+        const analysis = result.analysis;
         const shouldUpdate = confirm(
-          `AI has analyzed the new image and suggests updates:\n\n` +
+          `AI has analyzed all images and suggests updates:\n\n` +
           `Title: "${analysis.title}"\n` +
           `Description: "${analysis.description}"\n` +
           `Category: "${analysis.category}"\n` +
@@ -86,10 +115,16 @@ export default function ItemDetailsPage() {
         }
       }
       
-      setShowUpload(false);
+      setShowAnalyzeConfirm(false);
+      setPendingFiles([]);
     } catch (error) {
-      console.error('Failed to upload image:', error);
+      console.error('Failed to analyze images:', error);
     }
+  };
+
+  const handleSkipAnalysis = () => {
+    setShowAnalyzeConfirm(false);
+    setPendingFiles([]);
   };
 
   if (isLoading) {
@@ -207,7 +242,8 @@ export default function ItemDetailsPage() {
           </div>
           <ImageUpload
             onUpload={handleImageUpload}
-            isUploading={uploadImage.isLoading}
+            isUploading={uploadingFiles}
+            multiple={true}
           />
           
           <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
@@ -215,10 +251,10 @@ export default function ItemDetailsPage() {
               <Sparkles className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
               <div className="ml-3">
                 <p className="text-sm font-medium text-blue-900">
-                  AI-Powered Enhancement
+                  Upload-First Workflow
                 </p>
                 <p className="text-sm text-blue-700 mt-1">
-                  When you upload a photo, our AI will analyze it and offer suggestions to improve your listing.
+                  Upload multiple images first, then confirm when you're ready for AI analysis. The AI will analyze all images together for better results.
                 </p>
               </div>
             </div>
@@ -330,6 +366,48 @@ export default function ItemDetailsPage() {
           </div>
         </div>
       </div>
+
+      {/* AI Analysis Confirmation Dialog */}
+      {showAnalyzeConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center mb-4">
+                <Sparkles className="w-6 h-6 text-blue-600 mr-3" />
+                <h3 className="text-lg font-medium text-gray-900">
+                  Ready for AI Analysis?
+                </h3>
+              </div>
+              
+              <p className="text-gray-600 mb-6">
+                You've uploaded {pendingFiles.length} image{pendingFiles.length !== 1 ? 's' : ''}. 
+                Would you like to analyze {pendingFiles.length > 1 ? 'them' : 'it'} with AI to get 
+                automated title, description, category, and pricing suggestions?
+              </p>
+              
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={handleSkipAnalysis}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+                  disabled={analyzeAllImages.isLoading}
+                >
+                  Skip for Now
+                </button>
+                <button
+                  onClick={handleConfirmAnalysis}
+                  disabled={analyzeAllImages.isLoading}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center"
+                >
+                  {analyzeAllImages.isLoading && (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  )}
+                  {analyzeAllImages.isLoading ? 'Analyzing...' : 'Analyze with AI'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -72,3 +72,35 @@ export function useUploadImage() {
     }
   );
 }
+
+export function useUploadImageOnly() {
+  const queryClient = useQueryClient();
+  
+  return useMutation(
+    ({ itemId, file, onProgress }: { 
+      itemId: string; 
+      file: File; 
+      onProgress?: (progress: { uploadProgress: number; status: 'uploading'; message?: string }) => void 
+    }) => itemsApi.uploadImageOnly(itemId, file, onProgress),
+    {
+      onSuccess: (_, { itemId }) => {
+        queryClient.invalidateQueries(['items']);
+        queryClient.invalidateQueries(['items', itemId]);
+      },
+    }
+  );
+}
+
+export function useAnalyzeAllImages() {
+  const queryClient = useQueryClient();
+  
+  return useMutation(
+    (itemId: string) => itemsApi.analyzeAllImages(itemId),
+    {
+      onSuccess: (_, itemId) => {
+        queryClient.invalidateQueries(['items']);
+        queryClient.invalidateQueries(['items', itemId]);
+      },
+    }
+  );
+}

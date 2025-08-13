@@ -21,7 +21,9 @@ export default function APICostMeter({ className }: APICostMeterProps) {
     );
   }
 
-  const currentModel = models?.available_models.find(m => m.id === models.current_model);
+  const currentProvider = models?.current_provider || 'openai';
+  const currentProviderModels = models?.available_models[currentProvider] || [];
+  const currentModel = currentProviderModels.find(m => m.id === models?.current_model);
   const formatCost = (cost: number) => `$${cost.toFixed(2)}`;
   const formatTokens = (tokens: number) => tokens.toLocaleString();
 
@@ -92,7 +94,7 @@ export default function APICostMeter({ className }: APICostMeterProps) {
           <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
             <div className="p-2">
               <div className="text-xs font-medium text-gray-500 mb-2 px-2">SELECT AI MODEL</div>
-              {models?.available_models.map((model) => (
+              {currentProviderModels.map((model) => (
                 <button
                   key={model.id}
                   onClick={() => handleModelChange(model.id)}

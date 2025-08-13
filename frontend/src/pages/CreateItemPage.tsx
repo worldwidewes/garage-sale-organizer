@@ -30,7 +30,9 @@ export default function CreateItemPage() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleImageUpload = async (file: File) => {
+  const handleImageUpload = async (files: File[]) => {
+    if (files.length === 0) return;
+    const file = files[0]; // For create page, just use the first file
     debugUpload('Image upload initiated from UI', { fileName: file.name, fileSize: file.size });
     setIsUploadingUI(true);
     setUploadProgress(0);
